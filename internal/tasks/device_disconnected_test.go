@@ -82,7 +82,7 @@ func benchmarkUpdateSummaryStatusBatch(ctx context.Context, b *testing.B, log *l
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		b.StartTimer()
-		disconnected.Poll(ctx)
+		disconnected.Poll(ctx, store.NullOrgId)
 		b.StopTimer()
 
 		err := resetDeviceStatus(ctx, db, deviceNames)
@@ -95,7 +95,7 @@ func benchmarkUpdateSummaryStatusBatch(ctx context.Context, b *testing.B, log *l
 
 func resetDeviceStatus(ctx context.Context, db *gorm.DB, deviceNames []string) error {
 	status := v1alpha1.NewDeviceStatus()
-	status.LastSeen = time.Now().Add(-10 * time.Minute)
+	status.LastSeen = lo.ToPtr(time.Now().Add(-10 * time.Minute))
 	status.Summary.Status = v1alpha1.DeviceSummaryStatusOnline
 	err := db.WithContext(ctx).Transaction(func(innerTx *gorm.DB) (err error) {
 		for _, name := range deviceNames {
@@ -115,7 +115,7 @@ func resetDeviceStatus(ctx context.Context, db *gorm.DB, deviceNames []string) e
 func generateMockDevices(count int) []v1alpha1.Device {
 	devices := make([]v1alpha1.Device, count)
 	status := v1alpha1.NewDeviceStatus()
-	status.LastSeen = time.Now().Add(-10 * time.Minute)
+	status.LastSeen = lo.ToPtr(time.Now().Add(-10 * time.Minute))
 	status.Summary.Status = v1alpha1.DeviceSummaryStatusOnline
 	for i := 0; i < count; i++ {
 		devices[i] = v1alpha1.Device{

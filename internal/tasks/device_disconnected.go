@@ -7,7 +7,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/service"
-	"github.com/flightctl/flightctl/internal/util"
+	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
@@ -31,25 +31,24 @@ func NewDeviceDisconnected(log logrus.FieldLogger, serviceHandler service.Servic
 }
 
 // Poll checks the status of devices and updates the status to unknown if the device has not reported in the last DeviceDisconnectedTimeout.
-func (t *DeviceDisconnected) Poll(ctx context.Context) {
+func (t *DeviceDisconnected) Poll(ctx context.Context, orgID uuid.UUID) {
 	t.log.Info("Running DeviceDisconnected Polling")
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	// Calculate the cutoff time for disconnected devices
-	cutoffTime := time.Now().Add(-api.DeviceDisconnectedTimeout)
+	cutoffTime := time.Now().UTC().Add(-api.DeviceDisconnectedTimeout)
 
 	// Create a field selector to only get devices that haven't been seen for more than DeviceDisconnectedTimeout
 	// and don't already have "Unknown" status to avoid reprocessing the same devices
-	fieldSelectorStr := fmt.Sprintf("status.lastSeen<%s,status.summary.status!=Unknown", cutoffTime.Format(time.RFC3339))
+	fieldSelectorStr := fmt.Sprintf("lastSeen<%s,status.summary.status!=Unknown", cutoffTime.Format(time.RFC3339))
+	t.log.Debugf("Using field selector: %s", fieldSelectorStr)
 
 	// List devices that match the disconnection criteria with pagination
 	listParams := api.ListDevicesParams{
 		FieldSelector: &fieldSelectorStr,
 		Limit:         lo.ToPtr(int32(ItemsPerPage)),
 	}
-
-	orgId, _ := util.GetOrgIdFromContext(ctx)
 
 	totalProcessed := 0
 	for {
@@ -59,13 +58,15 @@ func (t *DeviceDisconnected) Poll(ctx context.Context) {
 			return
 		}
 
-		devices, status := t.serviceHandler.ListDevices(ctx, orgId, listParams, nil)
+		devices, status := t.serviceHandler.ListDevices(ctx, orgID, listParams, nil)
 		if status.Code != 200 {
 			t.log.Errorf("Failed to list devices: %s", status.Message)
 			return
 		}
 
+		t.log.Debugf("Field selector '%s' found %d devices", fieldSelectorStr, len(devices.Items))
 		if len(devices.Items) == 0 {
+			t.log.Debugf("No devices found with field selector '%s', stopping", fieldSelectorStr)
 			break
 		}
 
@@ -78,9 +79,10 @@ func (t *DeviceDisconnected) Poll(ctx context.Context) {
 				return
 			}
 
-			_, status := t.serviceHandler.ReplaceDeviceStatus(ctx, orgId, *device.Metadata.Name, device)
-			if status.Code != 200 {
-				t.log.Errorf("Failed to replace device status for %s: %s", *device.Metadata.Name, status.Message)
+			t.log.Debugf("Updating server-side device status for %s", *device.Metadata.Name)
+			err := t.serviceHandler.UpdateServerSideDeviceStatus(ctx, orgID, *device.Metadata.Name)
+			if err != nil {
+				t.log.Errorf("Failed to update server-side device status for %s: %s", *device.Metadata.Name, err.Error())
 				continue
 			}
 
