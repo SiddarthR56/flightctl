@@ -1431,7 +1431,7 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 			Expect(status.Code).To(Equal(int32(201)))
 
 			// Get the last seen timestamp
-			lastSeen, status := suite.Handler.GetDeviceLastSeen(suite.Ctx, deviceName)
+			lastSeen, status := suite.Handler.GetDeviceLastSeen(suite.Ctx, suite.OrgID, deviceName)
 			Expect(status.Code).To(Equal(int32(204)))
 			Expect(lastSeen).To(BeNil())
 		})
@@ -1462,7 +1462,7 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Get the last seen timestamp
-			lastSeen, status := suite.Handler.GetDeviceLastSeen(suite.Ctx, deviceName)
+			lastSeen, status := suite.Handler.GetDeviceLastSeen(suite.Ctx, suite.OrgID, deviceName)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(lastSeen).ToNot(BeNil())
 			Expect(lastSeen.LastSeen).ToNot(BeZero())
@@ -1473,7 +1473,7 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 			nonExistentDevice := "non-existent-device-" + uuid.New().String()
 
 			// Try to get last seen for non-existent device
-			lastSeen, status := suite.Handler.GetDeviceLastSeen(suite.Ctx, nonExistentDevice)
+			lastSeen, status := suite.Handler.GetDeviceLastSeen(suite.Ctx, suite.OrgID, nonExistentDevice)
 			Expect(status.Code).To(Equal(int32(404)))
 			Expect(lastSeen).To(BeNil())
 		})
@@ -1502,7 +1502,7 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 			Expect(status.Code).To(Equal(int32(201)))
 
 			// Get the last seen timestamp
-			lastSeen, status := suite.Handler.GetDeviceLastSeen(suite.Ctx, deviceName)
+			lastSeen, status := suite.Handler.GetDeviceLastSeen(suite.Ctx, suite.OrgID, deviceName)
 			Expect(status.Code).To(Equal(int32(204)))
 			Expect(lastSeen).To(BeNil())
 		})

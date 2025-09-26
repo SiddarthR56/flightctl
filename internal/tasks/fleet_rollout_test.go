@@ -8,6 +8,7 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/service"
+	"github.com/flightctl/flightctl/internal/store"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -212,7 +213,7 @@ func TestFleetRolloutsLogic_FullDelayDeviceRenderPropagation(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
 
-			orgId := uuid.New()
+			orgId := store.NullOrgId
 			log := logrus.New()
 			fleetName := "test-fleet"
 			event := api.Event{
@@ -328,7 +329,7 @@ func TestFleetRolloutsLogic_DelayDeviceRenderPropagationThroughContext(t *testin
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
 
-			orgId := uuid.New()
+			orgId := store.NullOrgId
 			log := logrus.New()
 			event := api.Event{
 				InvolvedObject: api.ObjectReference{

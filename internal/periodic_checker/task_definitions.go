@@ -79,7 +79,7 @@ func createTaskContext(ctx context.Context, taskType PeriodicTaskType, orgID uui
 func (e *RepositoryTesterExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgID uuid.UUID) {
 	taskCtx := createTaskContext(ctx, PeriodicTaskTypeRepositoryTester, orgID)
 	repoTester := tasks.NewRepoTester(e.log, e.serviceHandler)
-	repoTester.TestRepositories(taskCtx)
+	repoTester.TestRepositories(taskCtx, orgID)
 }
 
 type ResourceSyncExecutor struct {
@@ -91,7 +91,7 @@ type ResourceSyncExecutor struct {
 func (e *ResourceSyncExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgID uuid.UUID) {
 	taskCtx := createTaskContext(ctx, PeriodicTaskTypeResourceSync, orgID)
 	resourceSync := tasks.NewResourceSync(e.serviceHandler, e.log, e.ignoreResourceUpdates)
-	resourceSync.Poll(taskCtx)
+	resourceSync.Poll(taskCtx, orgID)
 }
 
 type DeviceDisconnectedExecutor struct {

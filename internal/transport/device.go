@@ -57,7 +57,7 @@ func (h *TransportHandler) GetDeviceStatus(w http.ResponseWriter, r *http.Reques
 
 // (GET /api/v1/devices/{name}/lastseen)
 func (h *TransportHandler) GetDeviceLastSeen(w http.ResponseWriter, r *http.Request, name string) {
-	body, status := h.serviceHandler.GetDeviceLastSeen(r.Context(), name)
+	body, status := h.serviceHandler.GetDeviceLastSeen(r.Context(), OrgIDFromContext(r.Context()), name)
 	SetResponse(w, body, status)
 }
 

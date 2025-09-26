@@ -200,7 +200,7 @@ var _ = Describe("Queue Maintenance Integration Tests", func() {
 				nil, api.Status{Code: 404, Message: "checkpoint not found"}).AnyTimes()
 
 			// Mock CreateEvent calls for any internal task events that might be emitted
-			mockService.EXPECT().CreateEvent(gomock.Any(), gomock.Any()).AnyTimes()
+			mockService.EXPECT().CreateEvent(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 			// Mock SetCheckpoint calls for checkpoint synchronization
 			mockService.EXPECT().SetCheckpoint(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(
@@ -220,7 +220,7 @@ var _ = Describe("Queue Maintenance Integration Tests", func() {
 				nil, api.Status{Code: 404, Message: "checkpoint not found"}).AnyTimes()
 
 			// Mock CreateEvent calls for any internal task events that might be emitted
-			mockService.EXPECT().CreateEvent(gomock.Any(), gomock.Any()).AnyTimes()
+			mockService.EXPECT().CreateEvent(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 			// Mock SetCheckpoint calls for checkpoint synchronization
 			mockService.EXPECT().SetCheckpoint(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(
@@ -268,7 +268,7 @@ var _ = Describe("Queue Maintenance Integration Tests", func() {
 					}).AnyTimes() // Allow multiple calls for debugging
 
 				// Mock CreateEvent calls for any internal task events that might be emitted
-				mockService.EXPECT().CreateEvent(gomock.Any(), gomock.Any()).AnyTimes()
+				mockService.EXPECT().CreateEvent(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 				// Mock SetCheckpoint calls for checkpoint synchronization
 				mockService.EXPECT().SetCheckpoint(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(
@@ -333,7 +333,7 @@ var _ = Describe("Queue Maintenance Integration Tests", func() {
 					nil, api.Status{Code: 404, Message: "checkpoint not found"}).AnyTimes()
 
 				// Mock CreateEvent calls for any internal task events that might be emitted
-				mockService.EXPECT().CreateEvent(gomock.Any(), gomock.Any()).AnyTimes()
+				mockService.EXPECT().CreateEvent(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 				// Mock SetCheckpoint calls for checkpoint synchronization
 				mockService.EXPECT().SetCheckpoint(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(
@@ -362,7 +362,7 @@ var _ = Describe("Queue Maintenance Integration Tests", func() {
 				api.Status{Code: 200})
 
 			// Mock CreateEvent calls for any internal task events that might be emitted
-			mockService.EXPECT().CreateEvent(gomock.Any(), gomock.Any()).AnyTimes()
+			mockService.EXPECT().CreateEvent(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 			// Mock SetCheckpoint calls for checkpoint synchronization
 			mockService.EXPECT().SetCheckpoint(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(
@@ -385,7 +385,7 @@ var _ = Describe("Queue Maintenance Integration Tests", func() {
 				nil, api.Status{Code: 404, Message: "checkpoint not found"}).AnyTimes()
 
 			// Mock CreateEvent calls for any internal task events that might be emitted
-			mockService.EXPECT().CreateEvent(gomock.Any(), gomock.Any()).AnyTimes()
+			mockService.EXPECT().CreateEvent(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 			// Mock SetCheckpoint calls for checkpoint synchronization
 			mockService.EXPECT().SetCheckpoint(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(
@@ -408,7 +408,7 @@ var _ = Describe("Queue Maintenance Integration Tests", func() {
 				nil, api.Status{Code: 404, Message: "checkpoint not found"}).AnyTimes()
 
 			// Mock CreateEvent calls for any internal task events that might be emitted
-			mockService.EXPECT().CreateEvent(gomock.Any(), gomock.Any()).AnyTimes()
+			mockService.EXPECT().CreateEvent(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 			// Mock SetCheckpoint calls for checkpoint synchronization
 			mockService.EXPECT().SetCheckpoint(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(
@@ -437,7 +437,7 @@ var _ = Describe("Queue Maintenance Integration Tests", func() {
 				nil, api.Status{Code: 404, Message: "checkpoint not found"}).AnyTimes()
 
 			// Mock CreateEvent calls for any internal task events that might be emitted
-			mockService.EXPECT().CreateEvent(gomock.Any(), gomock.Any()).AnyTimes()
+			mockService.EXPECT().CreateEvent(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 			// Mock SetCheckpoint calls for checkpoint synchronization
 			mockService.EXPECT().SetCheckpoint(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(
@@ -459,7 +459,7 @@ var _ = Describe("Queue Maintenance Integration Tests", func() {
 				nil, api.Status{Code: 404, Message: "checkpoint not found"}).AnyTimes()
 
 			// Mock CreateEvent calls for any internal task events that might be emitted
-			mockService.EXPECT().CreateEvent(gomock.Any(), gomock.Any()).AnyTimes()
+			mockService.EXPECT().CreateEvent(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 			// Mock SetCheckpoint calls for checkpoint synchronization
 			mockService.EXPECT().SetCheckpoint(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(
@@ -483,7 +483,7 @@ var _ = Describe("Queue Maintenance Integration Tests", func() {
 				nil, api.Status{Code: 404, Message: "checkpoint not found"}).AnyTimes()
 
 			// Mock CreateEvent calls for any internal task events that might be emitted
-			mockService.EXPECT().CreateEvent(gomock.Any(), gomock.Any()).AnyTimes()
+			mockService.EXPECT().CreateEvent(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 			// Mock SetCheckpoint calls for checkpoint synchronization
 			mockService.EXPECT().SetCheckpoint(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(

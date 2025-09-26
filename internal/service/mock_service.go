@@ -135,15 +135,15 @@ func (mr *MockServiceMockRecorder) CreateEnrollmentRequest(ctx, orgId, er any) *
 }
 
 // CreateEvent mocks base method.
-func (m *MockService) CreateEvent(ctx context.Context, event *v1alpha1.Event) {
+func (m *MockService) CreateEvent(ctx context.Context, orgId uuid.UUID, event *v1alpha1.Event) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "CreateEvent", ctx, event)
+	m.ctrl.Call(m, "CreateEvent", ctx, orgId, event)
 }
 
 // CreateEvent indicates an expected call of CreateEvent.
-func (mr *MockServiceMockRecorder) CreateEvent(ctx, event any) *gomock.Call {
+func (mr *MockServiceMockRecorder) CreateEvent(ctx, orgId, event any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateEvent", reflect.TypeOf((*MockService)(nil).CreateEvent), ctx, event)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateEvent", reflect.TypeOf((*MockService)(nil).CreateEvent), ctx, orgId, event)
 }
 
 // CreateFleet mocks base method.
@@ -410,18 +410,18 @@ func (mr *MockServiceMockRecorder) GetDeviceCompletionCounts(ctx, orgId, owner, 
 }
 
 // GetDeviceLastSeen mocks base method.
-func (m *MockService) GetDeviceLastSeen(ctx context.Context, name string) (*v1alpha1.DeviceLastSeen, v1alpha1.Status) {
+func (m *MockService) GetDeviceLastSeen(ctx context.Context, orgId uuid.UUID, name string) (*v1alpha1.DeviceLastSeen, v1alpha1.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetDeviceLastSeen", ctx, name)
+	ret := m.ctrl.Call(m, "GetDeviceLastSeen", ctx, orgId, name)
 	ret0, _ := ret[0].(*v1alpha1.DeviceLastSeen)
 	ret1, _ := ret[1].(v1alpha1.Status)
 	return ret0, ret1
 }
 
 // GetDeviceLastSeen indicates an expected call of GetDeviceLastSeen.
-func (mr *MockServiceMockRecorder) GetDeviceLastSeen(ctx, name any) *gomock.Call {
+func (mr *MockServiceMockRecorder) GetDeviceLastSeen(ctx, orgId, name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceLastSeen", reflect.TypeOf((*MockService)(nil).GetDeviceLastSeen), ctx, name)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceLastSeen", reflect.TypeOf((*MockService)(nil).GetDeviceLastSeen), ctx, orgId, name)
 }
 
 // GetDeviceRepositoryRefs mocks base method.

@@ -375,7 +375,7 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, orgId uui
 		identity, err := authcommon.GetIdentity(ctx)
 		if err != nil {
 			status := api.StatusInternalServerError(fmt.Sprintf("failed to retrieve user identity while approving enrollment request: %v", err))
-			h.CreateEvent(ctx, common.GetEnrollmentRequestApprovalFailedEvent(ctx, name, status, h.log))
+			h.CreateEvent(ctx, orgId, common.GetEnrollmentRequestApprovalFailedEvent(ctx, name, status, h.log))
 			return nil, status
 		}
 
@@ -395,14 +395,14 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, orgId uui
 		err = approveAndSignEnrollmentRequest(ctx, h.ca, enrollmentReq, &approvalStatus)
 		if err != nil {
 			status := api.StatusBadRequest(fmt.Sprintf("Error approving and signing enrollment request: %v", err.Error()))
-			h.CreateEvent(ctx, common.GetEnrollmentRequestApprovalFailedEvent(ctx, name, status, h.log))
+			h.CreateEvent(ctx, orgId, common.GetEnrollmentRequestApprovalFailedEvent(ctx, name, status, h.log))
 			return nil, status
 		}
 
 		// in case of error we return 500 as it will be caused by creating device in db and not by problem with enrollment request
 		if err := h.createDeviceFromEnrollmentRequest(ctx, orgId, enrollmentReq); err != nil {
 			status := api.StatusInternalServerError(fmt.Sprintf("error creating device from enrollment request: %v", err))
-			h.CreateEvent(ctx, common.GetEnrollmentRequestApprovalFailedEvent(ctx, name, status, h.log))
+			h.CreateEvent(ctx, orgId, common.GetEnrollmentRequestApprovalFailedEvent(ctx, name, status, h.log))
 			return nil, status
 		}
 	}

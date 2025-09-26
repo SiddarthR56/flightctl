@@ -151,9 +151,9 @@ func (t *TracedService) GetDeviceStatus(ctx context.Context, orgId uuid.UUID, na
 	endSpan(span, st)
 	return resp, st
 }
-func (t *TracedService) GetDeviceLastSeen(ctx context.Context, name string) (*api.DeviceLastSeen, api.Status) {
+func (t *TracedService) GetDeviceLastSeen(ctx context.Context, orgId uuid.UUID, name string) (*api.DeviceLastSeen, api.Status) {
 	ctx, span := startSpan(ctx, "GetDeviceLastSeen")
-	resp, st := t.inner.GetDeviceLastSeen(ctx, name)
+	resp, st := t.inner.GetDeviceLastSeen(ctx, orgId, name)
 	endSpan(span, st)
 	return resp, st
 }
@@ -560,9 +560,9 @@ func (t *TracedService) GetLatestTemplateVersion(ctx context.Context, orgId uuid
 }
 
 // --- Event ---
-func (t *TracedService) CreateEvent(ctx context.Context, event *api.Event) {
+func (t *TracedService) CreateEvent(ctx context.Context, orgId uuid.UUID, event *api.Event) {
 	ctx, span := startSpan(ctx, "CreateEvent")
-	t.inner.CreateEvent(ctx, event)
+	t.inner.CreateEvent(ctx, orgId, event)
 	span.End()
 }
 func (t *TracedService) ListEvents(ctx context.Context, orgId uuid.UUID, params api.ListEventsParams) (*api.EventList, api.Status) {

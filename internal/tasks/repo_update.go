@@ -53,7 +53,7 @@ func (t *RepositoryUpdateLogic) HandleRepositoryUpdate(ctx context.Context) erro
 	}
 
 	for _, fleet := range fleets.Items {
-		t.serviceHandler.CreateEvent(ctx, servicecommon.GetReferencedRepositoryUpdatedEvent(ctx, api.FleetKind, *fleet.Metadata.Name, t.event.InvolvedObject.Name))
+		t.serviceHandler.CreateEvent(ctx, t.orgId, servicecommon.GetReferencedRepositoryUpdatedEvent(ctx, api.FleetKind, *fleet.Metadata.Name, t.event.InvolvedObject.Name))
 	}
 
 	devices, status := t.serviceHandler.GetRepositoryDeviceReferences(ctx, t.orgId, t.event.InvolvedObject.Name)
@@ -62,7 +62,7 @@ func (t *RepositoryUpdateLogic) HandleRepositoryUpdate(ctx context.Context) erro
 	}
 
 	for _, device := range devices.Items {
-		t.serviceHandler.CreateEvent(ctx, servicecommon.GetReferencedRepositoryUpdatedEvent(ctx, api.DeviceKind, *device.Metadata.Name, t.event.InvolvedObject.Name))
+		t.serviceHandler.CreateEvent(ctx, t.orgId, servicecommon.GetReferencedRepositoryUpdatedEvent(ctx, api.DeviceKind, *device.Metadata.Name, t.event.InvolvedObject.Name))
 	}
 
 	return nil

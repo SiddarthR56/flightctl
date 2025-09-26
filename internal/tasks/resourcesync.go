@@ -42,15 +42,13 @@ func NewResourceSync(serviceHandler service.Service, log logrus.FieldLogger, ign
 	}
 }
 
-func (r *ResourceSync) Poll(ctx context.Context) {
+func (r *ResourceSync) Poll(ctx context.Context, orgId uuid.UUID) {
 	log := log.WithReqIDFromCtx(ctx, r.log)
 
 	log.Info("Running ResourceSync Polling")
 
 	limit := int32(ItemsPerPage)
 	continueToken := (*string)(nil)
-
-	orgId, _ := util.GetOrgIdFromContext(ctx)
 
 	for {
 		resourcesyncs, status := r.serviceHandler.ListResourceSyncs(ctx, orgId, api.ListResourceSyncsParams{
@@ -64,7 +62,7 @@ func (r *ResourceSync) Poll(ctx context.Context) {
 
 		for i := range resourcesyncs.Items {
 			rs := &resourcesyncs.Items[i]
-			err := r.run(ctx, log, rs)
+			err := r.run(ctx, log, orgId, rs)
 			if err != nil {
 				log.Errorf("resourcesync/%s: error during run: %v", *rs.Metadata.Name, err)
 			}
@@ -77,14 +75,12 @@ func (r *ResourceSync) Poll(ctx context.Context) {
 	}
 }
 
-func (r *ResourceSync) run(ctx context.Context, log logrus.FieldLogger, rs *api.ResourceSync) error {
+func (r *ResourceSync) run(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID, rs *api.ResourceSync) error {
 	resourceName := lo.FromPtr(rs.Metadata.Name)
-	defer r.updateResourceSyncStatus(ctx, rs)
-
-	orgId, _ := util.GetOrgIdFromContext(ctx)
+	defer r.updateResourceSyncStatus(ctx, orgId, rs)
 
 	// Get repository and validate accessibility
-	repo, err := r.GetRepositoryAndValidateAccess(ctx, rs)
+	repo, err := r.GetRepositoryAndValidateAccess(ctx, orgId, rs)
 	if err != nil {
 		return err
 	}
@@ -116,13 +112,12 @@ func (r *ResourceSync) run(ctx context.Context, log logrus.FieldLogger, rs *api.
 }
 
 // GetRepositoryAndValidateAccess gets the repository and validates it's accessible
-func (r *ResourceSync) GetRepositoryAndValidateAccess(ctx context.Context, rs *api.ResourceSync) (*api.Repository, error) {
+func (r *ResourceSync) GetRepositoryAndValidateAccess(ctx context.Context, orgId uuid.UUID, rs *api.ResourceSync) (*api.Repository, error) {
 	if rs == nil {
 		return nil, fmt.Errorf("ResourceSync is nil")
 	}
 
 	repoName := rs.Spec.Repository
-	orgId, _ := util.GetOrgIdFromContext(ctx)
 	repo, status := r.serviceHandler.GetRepository(ctx, orgId, repoName)
 	err := service.ApiStatusToErr(status)
 
@@ -453,8 +448,7 @@ func (r ResourceSync) parseFleets(resources []GenericResourceMap, owner *string)
 	return fleets, nil
 }
 
-func (r *ResourceSync) updateResourceSyncStatus(ctx context.Context, rs *api.ResourceSync) {
-	orgId, _ := util.GetOrgIdFromContext(ctx)
+func (r *ResourceSync) updateResourceSyncStatus(ctx context.Context, orgId uuid.UUID, rs *api.ResourceSync) {
 	_, status := r.serviceHandler.ReplaceResourceSyncStatus(ctx, orgId, *rs.Metadata.Name, *rs)
 	if status.Code != http.StatusOK {
 		r.log.Errorf("Failed to update resourcesync status for %s: %s", *rs.Metadata.Name, status.Message)

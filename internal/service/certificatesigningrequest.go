@@ -83,7 +83,7 @@ func (h *ServiceHandler) ListCertificateSigningRequests(ctx context.Context, org
 	}
 }
 
-func (h *ServiceHandler) verifyTPMCSRRequest(ctx context.Context, csr *api.CertificateSigningRequest) error {
+func (h *ServiceHandler) verifyTPMCSRRequest(ctx context.Context, orgId uuid.UUID, csr *api.CertificateSigningRequest) error {
 	if csr.Status == nil {
 		csr.Status = &api.CertificateSigningRequestStatus{}
 	}
@@ -92,7 +92,6 @@ func (h *ServiceHandler) verifyTPMCSRRequest(ctx context.Context, csr *api.Certi
 		return fmt.Errorf("parsing TCG CSR")
 	}
 
-	orgId := getOrgIdFromContext(ctx)
 	setTPMVerifiedFalse := func(messageTemplate string, args ...any) {
 		api.SetStatusCondition(&csr.Status.Conditions, api.Condition{
 			Message: fmt.Sprintf(messageTemplate, args...),
@@ -181,7 +180,7 @@ func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, cs
 		return nil, api.StatusBadRequest(err.Error())
 	}
 	if isTPM {
-		if err = h.verifyTPMCSRRequest(ctx, &csr); err != nil {
+		if err = h.verifyTPMCSRRequest(ctx, orgId, &csr); err != nil {
 			return nil, api.StatusBadRequest(err.Error())
 		}
 	}
@@ -253,7 +252,7 @@ func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, org
 		return nil, api.StatusBadRequest(err.Error())
 	}
 	if isTPM {
-		if err = h.verifyTPMCSRRequest(ctx, newObj); err != nil {
+		if err = h.verifyTPMCSRRequest(ctx, orgId, newObj); err != nil {
 			return nil, api.StatusBadRequest(err.Error())
 		}
 	}
@@ -307,7 +306,7 @@ func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, o
 	}
 
 	if isTPM {
-		if err = h.verifyTPMCSRRequest(ctx, &csr); err != nil {
+		if err = h.verifyTPMCSRRequest(ctx, orgId, &csr); err != nil {
 			return nil, api.StatusBadRequest(err.Error())
 		}
 	}

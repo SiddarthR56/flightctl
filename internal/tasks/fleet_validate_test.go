@@ -7,6 +7,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/service"
+	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -55,7 +56,7 @@ func TestFleetValidateLogic_CreateNewTemplateVersionIfFleetValid_ImmediateRollou
 			fleetName := "test-fleet"
 			fleet := createTestFleet(fleetName, tt.rolloutPolicy)
 			event := createTestEvent(api.FleetKind, "some-reason", fleetName)
-			orgId := uuid.New()
+			orgId := store.NullOrgId
 			log := logrus.New()
 
 			mockService := service.NewMockService(ctrl)

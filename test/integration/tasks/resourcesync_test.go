@@ -141,7 +141,7 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 			rs := createTestResourceSync(resourceSyncName, "test-repo", "/examples")
 
 			// Test the helper method
-			repo, err := resourceSync.GetRepositoryAndValidateAccess(ctx, rs)
+			repo, err := resourceSync.GetRepositoryAndValidateAccess(ctx, orgId, rs)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repo).ToNot(BeNil())
 
@@ -161,7 +161,7 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 			rs := createTestResourceSync(resourceSyncName, "non-existent-repo", "/examples")
 
 			// Test the helper method
-			repo, err := resourceSync.GetRepositoryAndValidateAccess(ctx, rs)
+			repo, err := resourceSync.GetRepositoryAndValidateAccess(ctx, orgId, rs)
 			Expect(err).To(HaveOccurred())
 			Expect(repo).To(BeNil())
 
@@ -350,7 +350,7 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 			rs := createTestResourceSync(resourceSyncName, "event-test-repo", "/examples")
 
 			// Call the helper method
-			_, err := resourceSync.GetRepositoryAndValidateAccess(ctx, rs)
+			_, err := resourceSync.GetRepositoryAndValidateAccess(ctx, orgId, rs)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Update the status to trigger event emission
@@ -373,7 +373,7 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 			rs := createTestResourceSync(resourceSyncName, "non-existent-repo", "/examples")
 
 			// Call the helper method
-			_, err := resourceSync.GetRepositoryAndValidateAccess(ctx, rs)
+			_, err := resourceSync.GetRepositoryAndValidateAccess(ctx, orgId, rs)
 			Expect(err).To(HaveOccurred())
 
 			// Update the status to trigger event emission
@@ -398,7 +398,7 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 
 			// Call the helper method
 			rs, _ := serviceHandler.GetResourceSync(ctx, orgId, resourceSyncName)
-			_, err := resourceSync.GetRepositoryAndValidateAccess(ctx, rs)
+			_, err := resourceSync.GetRepositoryAndValidateAccess(ctx, orgId, rs)
 			Expect(err).ToNot(HaveOccurred())
 
 			events := getEventsForResourceSync(resourceSyncName)

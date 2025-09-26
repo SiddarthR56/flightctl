@@ -252,8 +252,7 @@ func (h *ServiceHandler) GetDeviceStatus(ctx context.Context, orgId uuid.UUID, n
 	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
 
-func (h *ServiceHandler) GetDeviceLastSeen(ctx context.Context, name string) (*api.DeviceLastSeen, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
+func (h *ServiceHandler) GetDeviceLastSeen(ctx context.Context, orgId uuid.UUID, name string) (*api.DeviceLastSeen, api.Status) {
 
 	lastSeen, err := h.store.Device().GetLastSeen(ctx, orgId, name)
 	if err != nil {
@@ -514,7 +513,7 @@ func (h *ServiceHandler) diffAndEmitConditionEvents(ctx context.Context, orgId u
 	multipleOwnersConditionChanged := hasConditionChanged(oldMultipleOwnersCondition, newMultipleOwnersCondition)
 
 	if multipleOwnersConditionChanged {
-		createEvent := func(c context.Context, e *api.Event) { h.CreateEvent(c, e) }
+		createEvent := func(c context.Context, e *api.Event) { h.CreateEvent(c, orgId, e) }
 		common.EmitMultipleOwnersEvents(ctx, device, oldMultipleOwnersCondition, newMultipleOwnersCondition,
 			createEvent, common.GetDeviceMultipleOwnersDetectedEvent, common.GetDeviceMultipleOwnersResolvedEvent,
 			h.log,
@@ -529,7 +528,7 @@ func (h *ServiceHandler) diffAndEmitConditionEvents(ctx context.Context, orgId u
 	specValidConditionChanged := hasConditionChanged(oldSpecValidCondition, newSpecValidCondition)
 
 	if specValidConditionChanged {
-		createEvent := func(c context.Context, e *api.Event) { h.CreateEvent(c, e) }
+		createEvent := func(c context.Context, e *api.Event) { h.CreateEvent(c, orgId, e) }
 		common.EmitSpecValidEvents(ctx, device, oldSpecValidCondition, newSpecValidCondition,
 			createEvent, common.GetDeviceSpecValidEvent, common.GetDeviceSpecInvalidEvent,
 			h.log)

@@ -29,7 +29,7 @@ type Service interface {
 	ReplaceDevice(ctx context.Context, orgId uuid.UUID, name string, device api.Device, fieldsToUnset []string) (*api.Device, api.Status)
 	DeleteDevice(ctx context.Context, orgId uuid.UUID, name string) api.Status
 	GetDeviceStatus(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, api.Status)
-	GetDeviceLastSeen(ctx context.Context, name string) (*api.DeviceLastSeen, api.Status)
+	GetDeviceLastSeen(ctx context.Context, orgId uuid.UUID, name string) (*api.DeviceLastSeen, api.Status)
 	ReplaceDeviceStatus(ctx context.Context, orgId uuid.UUID, name string, device api.Device) (*api.Device, api.Status)
 	PatchDeviceStatus(ctx context.Context, orgId uuid.UUID, name string, patch api.PatchRequest) (*api.Device, api.Status)
 	GetRenderedDevice(ctx context.Context, orgId uuid.UUID, name string, params api.GetRenderedDeviceParams) (*api.Device, api.Status)
@@ -113,7 +113,7 @@ type Service interface {
 	GetLatestTemplateVersion(ctx context.Context, orgId uuid.UUID, fleet string) (*api.TemplateVersion, api.Status)
 
 	// Event
-	CreateEvent(ctx context.Context, event *api.Event)
+	CreateEvent(ctx context.Context, orgId uuid.UUID, event *api.Event)
 	ListEvents(ctx context.Context, orgId uuid.UUID, params api.ListEventsParams) (*api.EventList, api.Status)
 	DeleteEventsOlderThan(ctx context.Context, cutoffTime time.Time) (int64, api.Status)
 

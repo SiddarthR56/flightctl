@@ -184,7 +184,7 @@ func (h *EventHandler) HandleFleetUpdatedEvents(ctx context.Context, resourceKin
 	h.CreateEvent(ctx, orgId, event)
 
 	// Emit fleet validation events if applicable
-	h.emitFleetValidEvents(ctx, name, oldFleet, newFleet)
+	h.emitFleetValidEvents(ctx, orgId, name, oldFleet, newFleet)
 
 	deployingTemplateVersion, exists := newFleet.GetAnnotation(api.FleetAnnotationDeployingTemplateVersion)
 	if !exists {
@@ -192,17 +192,17 @@ func (h *EventHandler) HandleFleetUpdatedEvents(ctx context.Context, resourceKin
 	}
 
 	// Emit fleet rollout events if applicable
-	h.emitFleetRolloutNewEvent(ctx, name, deployingTemplateVersion, oldFleet, newFleet)
+	h.emitFleetRolloutNewEvent(ctx, orgId, name, deployingTemplateVersion, oldFleet, newFleet)
 	h.emitFleetRolloutBatchCompletedEvent(ctx, orgId, name, deployingTemplateVersion, oldFleet, newFleet)
-	h.emitFleetRolloutCompletedEvent(ctx, name, deployingTemplateVersion, oldFleet, newFleet)
-	h.emitFleetRolloutFailedEvent(ctx, name, deployingTemplateVersion, oldFleet, newFleet)
+	h.emitFleetRolloutCompletedEvent(ctx, orgId, name, deployingTemplateVersion, oldFleet, newFleet)
+	h.emitFleetRolloutFailedEvent(ctx, orgId, name, deployingTemplateVersion, oldFleet, newFleet)
 }
 
-func (h *EventHandler) emitFleetRolloutNewEvent(ctx context.Context, name string, deployingTemplateVersion string, oldFleet, newFleet *api.Fleet) {
+func (h *EventHandler) emitFleetRolloutNewEvent(ctx context.Context, orgId uuid.UUID, name string, deployingTemplateVersion string, oldFleet, newFleet *api.Fleet) {
 	if !newFleet.IsRolloutNew(oldFleet) {
 		return
 	}
-	h.CreateEvent(ctx, getOrgIdFromContext(ctx), common.GetFleetRolloutNewEvent(ctx, name))
+	h.CreateEvent(ctx, orgId, common.GetFleetRolloutNewEvent(ctx, name))
 }
 
 func (h *EventHandler) emitFleetRolloutBatchCompletedEvent(ctx context.Context, orgId uuid.UUID, name string, deployingTemplateVersion string, oldFleet, newFleet *api.Fleet) {
@@ -217,7 +217,7 @@ func (h *EventHandler) emitFleetRolloutBatchCompletedEvent(ctx context.Context, 
 	}
 }
 
-func (h *EventHandler) emitFleetValidEvents(ctx context.Context, name string, oldFleet, newFleet *api.Fleet) {
+func (h *EventHandler) emitFleetValidEvents(ctx context.Context, orgId uuid.UUID, name string, oldFleet, newFleet *api.Fleet) {
 	if newFleet.Status == nil {
 		return
 	}
@@ -243,18 +243,18 @@ func (h *EventHandler) emitFleetValidEvents(ctx context.Context, name string, ol
 
 	// Emit events based on the condition status
 	if newCondition.Status == api.ConditionStatusTrue {
-		h.CreateEvent(ctx, getOrgIdFromContext(ctx), common.GetFleetSpecValidEvent(ctx, name))
+		h.CreateEvent(ctx, orgId, common.GetFleetSpecValidEvent(ctx, name))
 	} else {
 		// Fleet became invalid
 		message := "Unknown"
 		if newCondition.Message != "" {
 			message = newCondition.Message
 		}
-		h.CreateEvent(ctx, getOrgIdFromContext(ctx), common.GetFleetSpecInvalidEvent(ctx, name, message))
+		h.CreateEvent(ctx, orgId, common.GetFleetSpecInvalidEvent(ctx, name, message))
 	}
 }
 
-func (h *EventHandler) emitFleetRolloutCompletedEvent(ctx context.Context, name string, deployingTemplateVersion string, oldFleet, newFleet *api.Fleet) {
+func (h *EventHandler) emitFleetRolloutCompletedEvent(ctx context.Context, orgId uuid.UUID, name string, deployingTemplateVersion string, oldFleet, newFleet *api.Fleet) {
 	if newFleet.Status == nil {
 		return
 	}
@@ -271,10 +271,10 @@ func (h *EventHandler) emitFleetRolloutCompletedEvent(ctx context.Context, name 
 		return
 	}
 
-	h.CreateEvent(ctx, getOrgIdFromContext(ctx), common.GetFleetRolloutCompletedEvent(ctx, name, deployingTemplateVersion))
+	h.CreateEvent(ctx, orgId, common.GetFleetRolloutCompletedEvent(ctx, name, deployingTemplateVersion))
 }
 
-func (h *EventHandler) emitFleetRolloutFailedEvent(ctx context.Context, name string, deployingTemplateVersion string, oldFleet, newFleet *api.Fleet) {
+func (h *EventHandler) emitFleetRolloutFailedEvent(ctx context.Context, orgId uuid.UUID, name string, deployingTemplateVersion string, oldFleet, newFleet *api.Fleet) {
 	if newFleet.Status == nil {
 		return
 	}
@@ -291,7 +291,7 @@ func (h *EventHandler) emitFleetRolloutFailedEvent(ctx context.Context, name str
 		return
 	}
 
-	h.CreateEvent(ctx, getOrgIdFromContext(ctx), common.GetFleetRolloutFailedEvent(ctx, name, deployingTemplateVersion, newCondition.Message))
+	h.CreateEvent(ctx, orgId, common.GetFleetRolloutFailedEvent(ctx, name, deployingTemplateVersion, newCondition.Message))
 }
 
 //////////////////////////////////////////////////////
@@ -375,14 +375,14 @@ func (h *EventHandler) HandleEnrollmentRequestUpdatedEvents(ctx context.Context,
 }
 
 // HandleEnrollmentRequestApprovedEvents handles enrollment request approval event emission logic
-func (h *EventHandler) HandleEnrollmentRequestApprovedEvents(ctx context.Context, resourceKind api.ResourceKind, _ uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
+func (h *EventHandler) HandleEnrollmentRequestApprovedEvents(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
 	if err != nil {
 		status := StoreErrorToApiStatus(err, created, string(resourceKind), &name)
-		h.CreateEvent(ctx, getOrgIdFromContext(ctx), common.GetEnrollmentRequestApprovalFailedEvent(ctx, name, status, h.log))
+		h.CreateEvent(ctx, orgId, common.GetEnrollmentRequestApprovalFailedEvent(ctx, name, status, h.log))
 	} else {
 		// For enrollment request approval, we always emit the approved event on successful update
 		// since this callback is only called when the approval process succeeds
-		h.CreateEvent(ctx, getOrgIdFromContext(ctx), common.GetEnrollmentRequestApprovedEvent(ctx, name, h.log))
+		h.CreateEvent(ctx, orgId, common.GetEnrollmentRequestApprovedEvent(ctx, name, h.log))
 	}
 }
 
@@ -415,7 +415,7 @@ func (h *EventHandler) HandleResourceSyncUpdatedEvents(ctx context.Context, reso
 	}
 
 	// Emit condition-specific events
-	h.emitResourceSyncConditionEvents(ctx, name, oldResourceSync, newResourceSync)
+	h.emitResourceSyncConditionEvents(ctx, orgId, name, oldResourceSync, newResourceSync)
 }
 
 //////////////////////////////////////////////////////
@@ -468,7 +468,7 @@ func (h *EventHandler) HandleTemplateVersionUpdatedEvents(ctx context.Context, r
 	}
 }
 
-func (h *EventHandler) emitResourceSyncConditionEvents(ctx context.Context, name string, oldResourceSync, newResourceSync *api.ResourceSync) {
+func (h *EventHandler) emitResourceSyncConditionEvents(ctx context.Context, orgId uuid.UUID, name string, oldResourceSync, newResourceSync *api.ResourceSync) {
 	if oldResourceSync == nil || newResourceSync == nil {
 		return
 	}
@@ -482,7 +482,7 @@ func (h *EventHandler) emitResourceSyncConditionEvents(ctx context.Context, name
 		newCommit = util.DefaultIfNil(newResourceSync.Status.ObservedCommit, "")
 	}
 	if oldCommit != newCommit && newCommit != "" {
-		h.CreateEvent(ctx, getOrgIdFromContext(ctx), common.GetResourceSyncCommitDetectedEvent(ctx, name, newCommit))
+		h.CreateEvent(ctx, orgId, common.GetResourceSyncCommitDetectedEvent(ctx, name, newCommit))
 	}
 
 	// Check for condition changes
@@ -499,13 +499,13 @@ func (h *EventHandler) emitResourceSyncConditionEvents(ctx context.Context, name
 	newAccessible := api.FindStatusCondition(newConditions, api.ConditionTypeResourceSyncAccessible)
 	if hasConditionChanged(oldAccessible, newAccessible) {
 		if api.IsStatusConditionTrue(newConditions, api.ConditionTypeResourceSyncAccessible) {
-			h.CreateEvent(ctx, getOrgIdFromContext(ctx), common.GetResourceSyncAccessibleEvent(ctx, name))
+			h.CreateEvent(ctx, orgId, common.GetResourceSyncAccessibleEvent(ctx, name))
 		} else {
 			message := "Repository access failed"
 			if newAccessible != nil && newAccessible.Message != "" {
 				message = newAccessible.Message
 			}
-			h.CreateEvent(ctx, getOrgIdFromContext(ctx), common.GetResourceSyncInaccessibleEvent(ctx, name, message))
+			h.CreateEvent(ctx, orgId, common.GetResourceSyncInaccessibleEvent(ctx, name, message))
 		}
 	}
 
@@ -514,13 +514,13 @@ func (h *EventHandler) emitResourceSyncConditionEvents(ctx context.Context, name
 	newParsed := api.FindStatusCondition(newConditions, api.ConditionTypeResourceSyncResourceParsed)
 	if hasConditionChanged(oldParsed, newParsed) {
 		if api.IsStatusConditionTrue(newConditions, api.ConditionTypeResourceSyncResourceParsed) {
-			h.CreateEvent(ctx, getOrgIdFromContext(ctx), common.GetResourceSyncParsedEvent(ctx, name))
+			h.CreateEvent(ctx, orgId, common.GetResourceSyncParsedEvent(ctx, name))
 		} else {
 			message := "Resource parsing failed"
 			if newParsed != nil && newParsed.Message != "" {
 				message = newParsed.Message
 			}
-			h.CreateEvent(ctx, getOrgIdFromContext(ctx), common.GetResourceSyncParsingFailedEvent(ctx, name, message))
+			h.CreateEvent(ctx, orgId, common.GetResourceSyncParsingFailedEvent(ctx, name, message))
 		}
 	}
 
@@ -529,13 +529,13 @@ func (h *EventHandler) emitResourceSyncConditionEvents(ctx context.Context, name
 	newSynced := api.FindStatusCondition(newConditions, api.ConditionTypeResourceSyncSynced)
 	if hasConditionChanged(oldSynced, newSynced) {
 		if api.IsStatusConditionTrue(newConditions, api.ConditionTypeResourceSyncSynced) {
-			h.CreateEvent(ctx, getOrgIdFromContext(ctx), common.GetResourceSyncSyncedEvent(ctx, name))
+			h.CreateEvent(ctx, orgId, common.GetResourceSyncSyncedEvent(ctx, name))
 		} else {
 			message := "Resource sync failed"
 			if newSynced != nil && newSynced.Message != "" {
 				message = newSynced.Message
 			}
-			h.CreateEvent(ctx, getOrgIdFromContext(ctx), common.GetResourceSyncSyncFailedEvent(ctx, name, message))
+			h.CreateEvent(ctx, orgId, common.GetResourceSyncSyncFailedEvent(ctx, name, message))
 		}
 	}
 }

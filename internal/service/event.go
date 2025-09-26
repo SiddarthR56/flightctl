@@ -11,8 +11,8 @@ import (
 	"github.com/samber/lo"
 )
 
-func (h *ServiceHandler) CreateEvent(ctx context.Context, event *api.Event) {
-	h.eventHandler.CreateEvent(ctx, getOrgIdFromContext(ctx), event)
+func (h *ServiceHandler) CreateEvent(ctx context.Context, orgId uuid.UUID, event *api.Event) {
+	h.eventHandler.CreateEvent(ctx, orgId, event)
 }
 
 func (h *ServiceHandler) ListEvents(ctx context.Context, orgId uuid.UUID, params api.ListEventsParams) (*api.EventList, api.Status) {
