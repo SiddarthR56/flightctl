@@ -17,7 +17,6 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service/common"
-	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/internal/util"
@@ -510,8 +509,8 @@ func (h *ServiceHandler) allowCreationOrUpdate(ctx context.Context, orgId uuid.U
 
 // deviceExists checks if a device with the given name exists in the store.
 // Error is returned if there is an error other than ErrResourceNotFound.
-func (h *ServiceHandler) deviceExists(ctx context.Context, name string) (bool, error) {
-	dev, err := h.store.Device().Get(ctx, store.NullOrgId, name)
+func (h *ServiceHandler) deviceExists(ctx context.Context, orgId uuid.UUID, name string) (bool, error) {
+	dev, err := h.store.Device().Get(ctx, orgId, name)
 	if errors.Is(err, flterrors.ErrResourceNotFound) {
 		return false, nil
 	}
