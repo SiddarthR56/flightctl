@@ -148,7 +148,10 @@ func (m *ConsoleSessionManager) StartSession(ctx context.Context, deviceName, se
 	}
 	m.log.Infof("Start session. Metadata %s", sessionMetadata)
 
-	orgId := getOrgIdFromContext(ctx)
+	orgId, ok := util.GetOrgIdFromContext(ctx)
+	if !ok {
+		return nil, errors.New("organization ID not found in context")
+	}
 	session := &ConsoleSession{
 		OrgId:      orgId,
 		DeviceName: deviceName,

@@ -389,7 +389,7 @@ func (h *ServiceHandler) PatchEnrollmentRequest(ctx context.Context, orgId uuid.
 }
 
 func (h *ServiceHandler) DeleteEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string) api.Status {
-	exists, err := h.deviceExists(ctx, name)
+	exists, err := h.deviceExists(ctx, orgId, name)
 	if err != nil {
 		return StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 	}

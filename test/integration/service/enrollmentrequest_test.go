@@ -451,14 +451,14 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 			er.Spec.KnownRenderedVersion = &knownRenderedVersion
 
 			By("creating enrollment request with knownRenderedVersion")
-			created, status := suite.Handler.CreateEnrollmentRequest(suite.Ctx, er)
+			created, status := suite.Handler.CreateEnrollmentRequest(suite.Ctx, suite.OrgID, er)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 			Expect(created).ToNot(BeNil())
 			Expect(created.Metadata.Annotations).ToNot(BeNil())
 			Expect(*created.Metadata.Annotations).To(HaveKeyWithValue(api.DeviceAnnotationAwaitingReconnect, "true"))
 
 			By("verifying the annotation persists after read back")
-			retrieved, status := suite.Handler.GetEnrollmentRequest(suite.Ctx, erName)
+			retrieved, status := suite.Handler.GetEnrollmentRequest(suite.Ctx, suite.OrgID, erName)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 			Expect(retrieved.Metadata.Annotations).ToNot(BeNil())
 			Expect(*retrieved.Metadata.Annotations).To(HaveKeyWithValue(api.DeviceAnnotationAwaitingReconnect, "true"))
@@ -473,7 +473,7 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 			er.Spec.KnownRenderedVersion = &knownRenderedVersion
 
 			By("creating enrollment request with knownRenderedVersion='0'")
-			created, status := suite.Handler.CreateEnrollmentRequest(suite.Ctx, er)
+			created, status := suite.Handler.CreateEnrollmentRequest(suite.Ctx, suite.OrgID, er)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 			Expect(created).ToNot(BeNil())
 
@@ -483,7 +483,7 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 			}
 
 			By("verifying no annotation after read back")
-			retrieved, status := suite.Handler.GetEnrollmentRequest(suite.Ctx, erName)
+			retrieved, status := suite.Handler.GetEnrollmentRequest(suite.Ctx, suite.OrgID, erName)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 			if retrieved.Metadata.Annotations != nil {
 				Expect(*retrieved.Metadata.Annotations).ToNot(HaveKey(api.DeviceAnnotationAwaitingReconnect))
@@ -499,7 +499,7 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 			er.Spec.KnownRenderedVersion = &knownRenderedVersion
 
 			By("creating enrollment request with empty knownRenderedVersion")
-			created, status := suite.Handler.CreateEnrollmentRequest(suite.Ctx, er)
+			created, status := suite.Handler.CreateEnrollmentRequest(suite.Ctx, suite.OrgID, er)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 			Expect(created).ToNot(BeNil())
 
@@ -509,7 +509,7 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 			}
 
 			By("verifying no annotation after read back")
-			retrieved, status := suite.Handler.GetEnrollmentRequest(suite.Ctx, erName)
+			retrieved, status := suite.Handler.GetEnrollmentRequest(suite.Ctx, suite.OrgID, erName)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 			if retrieved.Metadata.Annotations != nil {
 				Expect(*retrieved.Metadata.Annotations).ToNot(HaveKey(api.DeviceAnnotationAwaitingReconnect))
@@ -523,7 +523,7 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 			// knownRenderedVersion is nil by default
 
 			By("creating enrollment request without knownRenderedVersion")
-			created, status := suite.Handler.CreateEnrollmentRequest(suite.Ctx, er)
+			created, status := suite.Handler.CreateEnrollmentRequest(suite.Ctx, suite.OrgID, er)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 			Expect(created).ToNot(BeNil())
 
@@ -533,7 +533,7 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 			}
 
 			By("verifying no annotation after read back")
-			retrieved, status := suite.Handler.GetEnrollmentRequest(suite.Ctx, erName)
+			retrieved, status := suite.Handler.GetEnrollmentRequest(suite.Ctx, suite.OrgID, erName)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 			if retrieved.Metadata.Annotations != nil {
 				Expect(*retrieved.Metadata.Annotations).ToNot(HaveKey(api.DeviceAnnotationAwaitingReconnect))
