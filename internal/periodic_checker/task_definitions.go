@@ -64,22 +64,20 @@ type RepositoryTesterExecutor struct {
 	serviceHandler service.Service
 }
 
-// createTaskContext creates a task context with request ID, orgID, and event actor
-func createTaskContext(ctx context.Context, taskType PeriodicTaskType, orgID uuid.UUID) context.Context {
+// createTaskContext creates a task context with request ID and event actor
+func createTaskContext(ctx context.Context, taskType PeriodicTaskType) context.Context {
 	taskName := string(taskType)
 	reqid.OverridePrefix(taskName)
 	requestID := reqid.NextRequestID()
 	ctx = context.WithValue(ctx, middleware.RequestIDKey, requestID)
 
-	ctx = util.WithOrganizationID(ctx, orgID)
-
 	return context.WithValue(ctx, consts.EventActorCtxKey, taskName)
 }
 
 func (e *RepositoryTesterExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgID uuid.UUID) {
-	taskCtx := createTaskContext(ctx, PeriodicTaskTypeRepositoryTester, orgID)
+	taskCtx := createTaskContext(ctx, PeriodicTaskTypeRepositoryTester)
 	repoTester := tasks.NewRepoTester(e.log, e.serviceHandler)
-	repoTester.TestRepositories(taskCtx)
+	repoTester.TestRepositories(taskCtx, orgID)
 }
 
 type ResourceSyncExecutor struct {
@@ -89,9 +87,9 @@ type ResourceSyncExecutor struct {
 }
 
 func (e *ResourceSyncExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgID uuid.UUID) {
-	taskCtx := createTaskContext(ctx, PeriodicTaskTypeResourceSync, orgID)
+	taskCtx := createTaskContext(ctx, PeriodicTaskTypeResourceSync)
 	resourceSync := tasks.NewResourceSync(e.serviceHandler, e.log, e.ignoreResourceUpdates)
-	resourceSync.Poll(taskCtx)
+	resourceSync.Poll(taskCtx, orgID)
 }
 
 type DeviceDisconnectedExecutor struct {
@@ -100,9 +98,9 @@ type DeviceDisconnectedExecutor struct {
 }
 
 func (e *DeviceDisconnectedExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgID uuid.UUID) {
-	taskCtx := createTaskContext(ctx, PeriodicTaskTypeDeviceDisconnected, orgID)
+	taskCtx := createTaskContext(ctx, PeriodicTaskTypeDeviceDisconnected)
 	deviceDisconnected := tasks.NewDeviceDisconnected(e.log, e.serviceHandler)
-	deviceDisconnected.Poll(taskCtx)
+	deviceDisconnected.Poll(taskCtx, orgID)
 }
 
 type RolloutDeviceSelectionExecutor struct {
@@ -111,9 +109,9 @@ type RolloutDeviceSelectionExecutor struct {
 }
 
 func (e *RolloutDeviceSelectionExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgID uuid.UUID) {
-	taskCtx := createTaskContext(ctx, PeriodicTaskTypeRolloutDeviceSelection, orgID)
+	taskCtx := createTaskContext(ctx, PeriodicTaskTypeRolloutDeviceSelection)
 	rolloutDeviceSelection := device_selection.NewReconciler(e.serviceHandler, e.log)
-	rolloutDeviceSelection.Reconcile(taskCtx)
+	rolloutDeviceSelection.Reconcile(taskCtx, orgID)
 }
 
 type DisruptionBudgetExecutor struct {
@@ -122,9 +120,9 @@ type DisruptionBudgetExecutor struct {
 }
 
 func (e *DisruptionBudgetExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgID uuid.UUID) {
-	taskCtx := createTaskContext(ctx, PeriodicTaskTypeDisruptionBudget, orgID)
+	taskCtx := createTaskContext(ctx, PeriodicTaskTypeDisruptionBudget)
 	disruptionBudget := disruption_budget.NewReconciler(e.serviceHandler, e.log)
-	disruptionBudget.Reconcile(taskCtx)
+	disruptionBudget.Reconcile(taskCtx, orgID)
 }
 
 type EventCleanupExecutor struct {
@@ -134,7 +132,7 @@ type EventCleanupExecutor struct {
 }
 
 func (e *EventCleanupExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgID uuid.UUID) {
-	taskCtx := createTaskContext(ctx, PeriodicTaskTypeEventCleanup, orgID)
+	taskCtx := createTaskContext(ctx, PeriodicTaskTypeEventCleanup)
 	eventCleanup := tasks.NewEventCleanup(e.log, e.serviceHandler, e.eventRetentionPeriod)
 	eventCleanup.Poll(taskCtx)
 }
@@ -147,13 +145,12 @@ type QueueMaintenanceExecutor struct {
 }
 
 func (e *QueueMaintenanceExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgID uuid.UUID) {
-	taskCtx := createTaskContext(ctx, PeriodicTaskTypeQueueMaintenance, orgID)
+	taskCtx := createTaskContext(ctx, PeriodicTaskTypeQueueMaintenance)
 
 	// Create and execute the queue maintenance task
-	// Note: Queue maintenance is system-wide, orgID is only used for context/tracing
+	// Note: Queue maintenance is system-wide, orgID is not used
 	task := tasks.NewQueueMaintenanceTask(e.log, e.serviceHandler, e.queuesProvider, e.workerMetrics)
 
-	// For system-wide tasks, we don't need to pass orgID to the task itself
 	if err := task.Execute(taskCtx); err != nil {
 		e.log.WithError(err).Error("Queue maintenance task failed")
 	}
