@@ -160,6 +160,9 @@ func TestLifecycleManager_verifyEnrollment(t *testing.T) {
 				}
 				mockEnrollment.EXPECT().GetEnrollmentRequest(gomock.Any(), "test-device").Return(enrollmentRequest, nil)
 				mockIdentity.EXPECT().StoreCertificate([]byte(certificate)).Return(nil)
+				// After successful enrollment, CSR is cleared
+				mockIdentity.EXPECT().LoadCSR().Return([]byte("test-csr"), nil)
+				mockIdentity.EXPECT().StoreCSR(nil).Return(nil)
 			},
 			expectedResult: true,
 			expectedError:  "",

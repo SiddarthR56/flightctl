@@ -1401,6 +1401,9 @@ func (h *Harness) SetupVMFromPoolAndStartAgent(workerID int) error {
 		return fmt.Errorf("failed to wait for SSH: %w", err)
 	}
 
+	// Clean any stale CSR from previous tests
+	_, _ = testVM.RunSSH([]string{"sudo", "rm", "-f", "/var/lib/flightctl/certs/agent.csr"}, nil)
+
 	// Stop the agent to ensure clean state
 	if _, err := testVM.RunSSH([]string{"sudo", "systemctl", "restart", "flightctl-agent"}, nil); err != nil {
 		return fmt.Errorf("failed to stop flightctl-agent: %w", err)

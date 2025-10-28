@@ -169,6 +169,21 @@ func (mr *MockProviderMockRecorder) Initialize(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Initialize", reflect.TypeOf((*MockProvider)(nil).Initialize), ctx)
 }
 
+// LoadCSR mocks base method.
+func (m *MockProvider) LoadCSR() ([]byte, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LoadCSR")
+	ret0, _ := ret[0].([]byte)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// LoadCSR indicates an expected call of LoadCSR.
+func (mr *MockProviderMockRecorder) LoadCSR() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LoadCSR", reflect.TypeOf((*MockProvider)(nil).LoadCSR))
+}
+
 // ProveIdentity mocks base method.
 func (m *MockProvider) ProveIdentity(ctx context.Context, enrollmentRequest *v1alpha1.EnrollmentRequest) error {
 	m.ctrl.T.Helper()
@@ -181,6 +196,20 @@ func (m *MockProvider) ProveIdentity(ctx context.Context, enrollmentRequest *v1a
 func (mr *MockProviderMockRecorder) ProveIdentity(ctx, enrollmentRequest any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ProveIdentity", reflect.TypeOf((*MockProvider)(nil).ProveIdentity), ctx, enrollmentRequest)
+}
+
+// StoreCSR mocks base method.
+func (m *MockProvider) StoreCSR(csr []byte) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "StoreCSR", csr)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// StoreCSR indicates an expected call of StoreCSR.
+func (mr *MockProviderMockRecorder) StoreCSR(csr any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreCSR", reflect.TypeOf((*MockProvider)(nil).StoreCSR), csr)
 }
 
 // StoreCertificate mocks base method.
