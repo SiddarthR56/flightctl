@@ -438,7 +438,7 @@ var _ = Describe("DeviceStore create", func() {
 				})
 
 				imageApp := &api.ImageApplicationProviderSpec{
-					Image:   "quay.io/flightctl/test-app:latest",
+					Image:   lo.ToPtr("quay.io/flightctl/test-app:latest"),
 					Volumes: &[]api.ApplicationVolume{imageVolume},
 				}
 				imageAppItem := api.ApplicationProviderSpec{

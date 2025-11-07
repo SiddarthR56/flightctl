@@ -56,7 +56,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 
 			updateDevice(harness, deviceId, func(device *v1alpha1.Device) {
 				var applicationConfig = v1alpha1.ImageApplicationProviderSpec{
-					Image: imageName,
+					Image: lo.ToPtr(imageName),
 				}
 
 				var appSpec v1alpha1.ApplicationProviderSpec
@@ -98,7 +98,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 				}
 
 				applicationConfig := v1alpha1.ImageApplicationProviderSpec{
-					Image: imageName,
+					Image: lo.ToPtr(imageName),
 				}
 
 				var appSpec v1alpha1.ApplicationProviderSpec
@@ -159,7 +159,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 				Expect(err).ToNot(HaveOccurred())
 
 				appConfig := v1alpha1.ImageApplicationProviderSpec{
-					Image:   imageName,
+					Image:   lo.ToPtr(imageName),
 					Volumes: &[]v1alpha1.ApplicationVolume{volumeConfig},
 				}
 
@@ -187,7 +187,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 
 			updateDevice(harness, deviceId, func(device *v1alpha1.Device) {
 				appConfig := v1alpha1.ImageApplicationProviderSpec{
-					Image: imageName,
+					Image: lo.ToPtr(imageName),
 				}
 
 				var appSpec v1alpha1.ApplicationProviderSpec

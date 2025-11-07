@@ -540,7 +540,7 @@ func setupTestContext(ctx context.Context) *TestContext {
 	sleepAppImage := fmt.Sprintf("%s/sleep-app:v1", extIP)
 
 	applicationConfig := api.ImageApplicationProviderSpec{
-		Image: sleepAppImage,
+		Image: lo.ToPtr(sleepAppImage),
 	}
 
 	appType := api.AppType("compose")
@@ -626,7 +626,7 @@ func (tc *TestContext) createDeviceSpec() (api.DeviceSpec, error) {
 
 func (tc *TestContext) updateAppVersion(version string) error {
 	tc.applicationSpec.Name = lo.ToPtr(fmt.Sprintf("sleepapp-%s", version))
-	tc.applicationConfig.Image = fmt.Sprintf("%s/sleep-app:%s", tc.harness.RegistryEndpoint(), version)
+	tc.applicationConfig.Image = lo.ToPtr(fmt.Sprintf("%s/sleep-app:%s", tc.harness.RegistryEndpoint(), version))
 	return tc.applicationSpec.FromImageApplicationProviderSpec(tc.applicationConfig)
 }
 

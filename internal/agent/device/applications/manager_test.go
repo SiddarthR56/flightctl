@@ -750,7 +750,7 @@ func TestCollectOCITargetsErrorHandling(t *testing.T) {
 				AppType: lo.ToPtr(v1alpha1.AppTypeCompose),
 			}
 			_ = providerSpec.FromImageApplicationProviderSpec(v1alpha1.ImageApplicationProviderSpec{
-				Image: "quay.io/test/image:v1",
+				Image: lo.ToPtr("quay.io/test/image:v1"),
 			})
 			spec := &v1alpha1.DeviceSpec{
 				Applications: &[]v1alpha1.ApplicationProviderSpec{providerSpec},

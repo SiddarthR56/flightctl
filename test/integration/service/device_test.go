@@ -73,7 +73,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 
 			// Create proper ImageApplicationProviderSpec
 			imageProvider := api.ImageApplicationProviderSpec{
-				Image: "quay.io/test/app:v1",
+				Image: lo.ToPtr("quay.io/test/app:v1"),
 			}
 			err := app.FromImageApplicationProviderSpec(imageProvider)
 			Expect(err).ToNot(HaveOccurred())
@@ -181,7 +181,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 
 			// Create proper ImageApplicationProviderSpec
 			imageProvider := api.ImageApplicationProviderSpec{
-				Image: "quay.io/test/app:v1",
+				Image: lo.ToPtr("quay.io/test/app:v1"),
 			}
 			err := app.FromImageApplicationProviderSpec(imageProvider)
 			Expect(err).ToNot(HaveOccurred())

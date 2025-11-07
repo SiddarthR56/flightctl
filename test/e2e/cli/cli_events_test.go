@@ -13,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/samber/lo"
 	"sigs.k8s.io/yaml"
 )
 
@@ -385,7 +386,7 @@ var _ = Describe("cli events operation", func() {
 				imageName := "quay.io/rh_ee_camadorg/oci-app-ko:latest"
 				// Create the application spec with the invalid image
 				var applicationConfig = v1alpha1.ImageApplicationProviderSpec{
-					Image: imageName,
+					Image: lo.ToPtr(imageName),
 				}
 
 				var appSpec v1alpha1.ApplicationProviderSpec

@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	goerrors "errors"
 	"fmt"
 	"path/filepath"
 	"reflect"
@@ -84,8 +85,17 @@ func CollectBaseOCITargets(
 				return nil, fmt.Errorf("getting image provider spec: %w", err)
 			}
 
+			reference, err := imageSpec.GetReference()
+			if err != nil {
+				return nil, fmt.Errorf("getting image reference: %w", err)
+			}
+
 			// Add base image with PullIfNotPresent policy
 			policy := v1alpha1.PullIfNotPresent
+			targetType := dependency.OCITypeImage
+			if imageSpec.IsArtifact() {
+				targetType = dependency.OCITypeArtifact
+			}
 			targets = append(targets, dependency.OCIPullTarget{
 				Type:       dependency.OCITypeAuto,
 				Reference:  imageSpec.Image,
@@ -299,18 +309,29 @@ func ExtractNestedTargetsFromImage(
 	imageSpec *v1alpha1.ImageApplicationProviderSpec,
 	pullSecret *client.PullSecret,
 ) (*AppData, error) {
+	reference, err := imageSpec.GetReference()
+	if err != nil {
+		return nil, fmt.Errorf("getting OCI reference: %w", err)
+	}
+
+	isArtifact := imageSpec.IsArtifact()
+
 	appName := lo.FromPtr(appSpec.Name)
 	if appName == "" {
-		appName = imageSpec.Image
+		appName = reference
 	}
 
 	// determine app type
 	appType := lo.FromPtr(appSpec.AppType)
 	if appType == "" {
-		var err error
-		appType, err = typeFromImage(ctx, podman, imageSpec.Image)
-		if err != nil {
-			return nil, fmt.Errorf("getting app type for app %s (%s): %w", appName, imageSpec.Image, err)
+		if isArtifact {
+			appType = v1alpha1.AppTypeQuadlet
+		} else {
+			var err error
+			appType, err = typeFromImage(ctx, podman, reference)
+			if err != nil {
+				return nil, fmt.Errorf("getting app type for app %s (%s): %w", appName, reference, err)
+			}
 		}
 	}
 
@@ -324,7 +345,8 @@ func ExtractNestedTargetsFromImage(
 		podman,
 		readWriter,
 		appName,
-		imageSpec.Image,
+		reference,
+		isArtifact,
 		appType,
 		pullSecret,
 	)
@@ -363,16 +385,29 @@ func FromDeviceSpec(
 
 		switch providerType {
 		case v1alpha1.ImageApplicationProviderType:
+			imageSpec, err := providerSpec.AsImageApplicationProviderSpec()
+			if err != nil {
+				return nil, fmt.Errorf("getting image provider spec: %w", err)
+			}
+
+			reference, err := imageSpec.GetReference()
+			if err != nil {
+				return nil, fmt.Errorf("getting OCI reference for image provider: %w", err)
+			}
+
+			isArtifact := imageSpec.IsArtifact()
+
 			// determine app type for image provider
 			appType := lo.FromPtr(providerSpec.AppType)
-			if appType == "" {
-				imageSpec, err := providerSpec.AsImageApplicationProviderSpec()
-				if err != nil {
-					return nil, fmt.Errorf("getting image provider spec: %w", err)
+			if isArtifact {
+				if appType != "" && appType != v1alpha1.AppTypeQuadlet {
+					log.Warnf("Artifact applications only support appType=quadlet (app %s). Overriding %q to quadlet.", lo.FromPtr(providerSpec.Name), appType)
 				}
-				appType, err = typeFromImage(ctx, podman, imageSpec.Image)
+				appType = v1alpha1.AppTypeQuadlet
+			} else if appType == "" {
+				appType, err = typeFromImage(ctx, podman, reference)
 				if err != nil {
-					return nil, fmt.Errorf("getting app type for image %s: %w", imageSpec.Image, err)
+					return nil, fmt.Errorf("getting app type for reference %s: %w", reference, err)
 				}
 			}
 			if appType != v1alpha1.AppTypeCompose && appType != v1alpha1.AppTypeQuadlet {
@@ -386,10 +421,7 @@ func FromDeviceSpec(
 			if cfg.appDataCache != nil {
 				appName := lo.FromPtr(providerSpec.Name)
 				if appName == "" {
-					imageSpec, err := providerSpec.AsImageApplicationProviderSpec()
-					if err == nil {
-						appName = imageSpec.Image
-					}
+					appName = reference
 				}
 				if cachedData, found := cfg.appDataCache[appName]; found {
 					imgProvider.AppData = cachedData
@@ -634,6 +666,7 @@ func extractAppDataFromOCITarget(
 	readWriter fileio.ReadWriter,
 	appName string,
 	imageRef string,
+	isArtifact bool,
 	appType v1alpha1.AppType,
 	pullSecret *client.PullSecret,
 ) (*AppData, error) {
@@ -646,11 +679,11 @@ func extractAppDataFromOCITarget(
 		return readWriter.RemoveAll(tmpAppPath)
 	}
 
-	if err := podman.CopyContainerData(ctx, imageRef, tmpAppPath); err != nil {
+	if err := extractReferenceContents(ctx, podman, readWriter, imageRef, tmpAppPath, isArtifact); err != nil {
 		if rmErr := cleanupFn(); rmErr != nil {
-			return nil, fmt.Errorf("copying image contents for app %s (%s): %w (cleanup failed: %v)", appName, imageRef, err, rmErr)
+			return nil, fmt.Errorf("copying reference contents for app %s (%s): %w (cleanup failed: %v)", appName, imageRef, err, rmErr)
 		}
-		return nil, fmt.Errorf("copying image contents for app %s (%s): %w", appName, imageRef, err)
+		return nil, fmt.Errorf("copying reference contents for app %s (%s): %w", appName, imageRef, err)
 	}
 
 	var targets []dependency.OCIPullTarget
@@ -745,23 +778,95 @@ func ensureCompose(readWriter fileio.ReadWriter, appPath string) error {
 	return nil
 }
 
-func ensureQuadlet(readWriter fileio.ReadWriter, appPath string) error {
-	spec, err := client.ParseQuadletReferencesFromDir(readWriter, appPath)
+// ensureQuadlet validates that the directory contains valid quadlet files.
+// For artifacts, quadlet files must be at the top level only (nested quadlet definitions are invalid).
+func ensureQuadlet(readWriter fileio.ReadWriter, path string) error {
+	entries, err := readWriter.ReadDir(path)
 	if err != nil {
-		return fmt.Errorf("parsing quadlet spec: %w", err)
+		return fmt.Errorf("reading directory: %w", err)
 	}
 
-	var errs []error
-	for path, quad := range spec {
-		if e := validation.ValidateQuadletSpec(quad, path); len(e) > 0 {
-			errs = append(errs, e...)
+	quadletCount := 0
+	var validationErrors []error
+	var nestedQuadletDirs []string
+
+	// Check for quadlet files in top-level directory
+	for _, entry := range entries {
+		filename := entry.Name()
+
+		if entry.IsDir() {
+			// Check if subdirectory contains quadlet files (which is invalid for artifacts)
+			subPath := filepath.Join(path, filename)
+			hasQuadletFiles, err := hasQuadletFilesInDir(readWriter, subPath)
+			if err != nil {
+				validationErrors = append(validationErrors,
+					fmt.Errorf("checking subdirectory %s: %w", filename, err))
+				continue
+			}
+			if hasQuadletFiles {
+				nestedQuadletDirs = append(nestedQuadletDirs, filename)
+			}
+			continue
+		}
+
+		if !quadlet.IsQuadletFile(filename) {
+			continue
+		}
+
+		quadletCount++
+
+		filePath := filepath.Join(path, filename)
+		content, err := readWriter.ReadFile(filePath)
+		if err != nil {
+			validationErrors = append(validationErrors,
+				fmt.Errorf("reading quadlet file %s: %w", filename, err))
+			continue
+		}
+
+		quadletSpec, err := common.ParseQuadletReferences(content)
+		if err != nil {
+			validationErrors = append(validationErrors,
+				fmt.Errorf("parse quadlet file %s: %w", filename, err))
+			continue
+		}
+
+		errs := validation.ValidateQuadletSpec(quadletSpec, filename)
+		if len(errs) > 0 {
+			for _, e := range errs {
+				validationErrors = append(validationErrors,
+					fmt.Errorf("validate quadlet file %s: %w", filename, e))
+			}
 		}
 	}
 
-	if len(errs) > 0 {
-		return fmt.Errorf("validating quadlets spec: %w", errors.Join(errs...))
+	if len(nestedQuadletDirs) > 0 {
+		return fmt.Errorf("invalid quadlet artifact: quadlet files found in nested directories: %v. Quadlet files must be at the top level only", nestedQuadletDirs)
 	}
+
+	if quadletCount == 0 {
+		return fmt.Errorf("no valid quadlet files found in artifact")
+	}
+
+	if len(validationErrors) > 0 {
+		return fmt.Errorf("quadlet validation failed: %w", goerrors.Join(validationErrors...))
+	}
+
 	return nil
+}
+
+// hasQuadletFilesInDir checks if a directory contains any quadlet files
+func hasQuadletFilesInDir(readWriter fileio.ReadWriter, dir string) (bool, error) {
+	entries, err := readWriter.ReadDir(dir)
+	if err != nil {
+		return false, err
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() && quadlet.IsQuadletFile(entry.Name()) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // writeENVFile writes the environment variables to a .env file in the appPath

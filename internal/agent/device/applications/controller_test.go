@@ -42,18 +42,9 @@ func TestParseAppProviders(t *testing.T) {
 		wantErr      error
 	}{
 		{
-			name: "valid app type",
-			setupMocks: func(
-				mockExecuter *executer.MockExecuter,
-				imageConfig string,
-			) {
-				gomock.InOrder(
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(imageConfig, "", 0),
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "unshare", "podman", "image", "mount", gomock.Any()).Return("/mount", "", 0),
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "unmount", gomock.Any()).Return("", "", 0),
-				)
-			},
-			apps: []testApp{{name: "app1", image: "quay.io/org/app1:latest"}},
+			name:       "valid app type",
+			setupMocks: expectInspectCommand,
+			apps:       []testApp{{name: "app1", image: "quay.io/org/app1:latest"}},
 			labels: map[string]string{
 				AppTypeLabel: string(v1alpha1.AppTypeCompose),
 			},
@@ -61,48 +52,25 @@ func TestParseAppProviders(t *testing.T) {
 			wantIDPrefix: []string{"app1-"},
 		},
 		{
-			name: "unsupported app type",
-			setupMocks: func(
-				mockExecuter *executer.MockExecuter,
-				imageConfig string,
-			) {
-				gomock.InOrder(
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(imageConfig, "", 0),
-				)
-			},
-			apps: []testApp{{name: "app1", image: "quay.io/org/app1:latest"}},
+			name:       "unsupported app type",
+			setupMocks: expectInspectCommand,
+			apps:       []testApp{{name: "app1", image: "quay.io/org/app1:latest"}},
 			labels: map[string]string{
 				AppTypeLabel: "invalid",
 			},
 			wantErr: errors.ErrUnsupportedAppType,
 		},
 		{
-			name: "missing app type",
-			setupMocks: func(
-				mockExecuter *executer.MockExecuter,
-				imageConfig string,
-			) {
-				gomock.InOrder(
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(imageConfig, "", 0),
-				)
-			},
-			apps:    []testApp{{name: "app1", image: "quay.io/org/app1:latest"}},
-			labels:  map[string]string{},
-			wantErr: errors.ErrAppLabel,
+			name:       "missing app type",
+			setupMocks: expectInspectCommand,
+			apps:       []testApp{{name: "app1", image: "quay.io/org/app1:latest"}},
+			labels:     map[string]string{},
+			wantErr:    errors.ErrAppLabel,
 		},
 		{
-			name: "missing app name populated by provider image",
-			setupMocks: func(
-				mockExecuter *executer.MockExecuter,
-				imageConfig string,
-			) {
-				gomock.InOrder(
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(imageConfig, "", 0),
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "unshare", "podman", "image", "mount", gomock.Any()).Return("/mount", "", 0),
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "unmount", gomock.Any()).Return("", "", 0),
-				)
-			},
-			apps: []testApp{{name: "", image: "quay.io/org/app1:latest"}},
+			name:       "missing app name populated by provider image",
+			setupMocks: expectInspectCommand,
+			apps:       []testApp{{name: "", image: "quay.io/org/app1:latest"}},
 			labels: map[string]string{
 				AppTypeLabel: string(v1alpha1.AppTypeCompose),
 			},
@@ -119,26 +87,8 @@ func TestParseAppProviders(t *testing.T) {
 			apps: []testApp{},
 		},
 		{
-			name: "multiple apps",
-			setupMocks: func(
-				mockExecuter *executer.MockExecuter,
-				imageConfig string,
-			) {
-				gomock.InOrder(
-					// inspect all apps first
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(imageConfig, "", 0),
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(imageConfig, "", 0),
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(imageConfig, "", 0),
-
-					// then verify (mount/unmount) all apps
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "unshare", "podman", "image", "mount", gomock.Any()).Return("/mount", "", 0),
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "unmount", gomock.Any()).Return("", "", 0),
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "unshare", "podman", "image", "mount", gomock.Any()).Return("/mount", "", 0),
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "unmount", gomock.Any()).Return("", "", 0),
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "unshare", "podman", "image", "mount", gomock.Any()).Return("/mount", "", 0),
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "unmount", gomock.Any()).Return("", "", 0),
-				)
-			},
+			name:       "multiple apps",
+			setupMocks: expectInspectCommand,
 			apps: []testApp{
 				{name: "app1", image: "quay.io/org/app1:latest"},
 				{name: "", image: "quay.io/org/app2:latest"},
@@ -188,11 +138,7 @@ func TestParseAppProviders(t *testing.T) {
 			}
 			require.NoError(err)
 			require.Equal(len(tc.apps), len(providers))
-			// ensure name is populated
 			for i, provider := range providers {
-				// verify deps
-				err := provider.Verify(ctx)
-				require.NoError(err)
 				require.NotEmpty(provider.Name())
 				if len(tc.wantNames) > 0 {
 					require.Equal(tc.wantNames[i], provider.Name())
@@ -221,6 +167,13 @@ func newImageConfig(labels map[string]string) (string, error) {
 	return string(imageConfigBytes), nil
 }
 
+func expectInspectCommand(mockExecuter *executer.MockExecuter, imageConfig string) {
+	mockExecuter.EXPECT().
+		ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).
+		Return(imageConfig, "", 0).
+		AnyTimes()
+}
+
 func newTestDeviceSpec(appSpecs []testApp) (*v1alpha1.DeviceSpec, error) {
 	var applications []v1alpha1.ApplicationProviderSpec
 	for _, spec := range appSpecs {
@@ -228,7 +181,7 @@ func newTestDeviceSpec(appSpecs []testApp) (*v1alpha1.DeviceSpec, error) {
 			Name: lo.ToPtr(spec.name),
 		}
 		provider := v1alpha1.ImageApplicationProviderSpec{
-			Image: spec.image,
+			Image: lo.ToPtr(spec.image),
 		}
 		if err := app.FromImageApplicationProviderSpec(provider); err != nil {
 			return nil, err

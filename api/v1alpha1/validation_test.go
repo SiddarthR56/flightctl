@@ -847,7 +847,7 @@ func newTestApplication(require *require.Assertions, name string, appImage, volI
 	}
 
 	provider := ImageApplicationProviderSpec{
-		Image:   appImage,
+		Image:   lo.ToPtr(appImage),
 		Volumes: &volumes,
 	}
 	require.NoError(app.FromImageApplicationProviderSpec(provider))
