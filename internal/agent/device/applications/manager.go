@@ -43,6 +43,7 @@ func NewManager(
 	podmanClient *client.Podman,
 	systemInfo systeminfo.Manager,
 	systemdClient *client.Systemd,
+	prefetchManager dependency.PrefetchManager,
 ) Manager {
 	bootTime := systemInfo.BootTime()
 	return &manager{

@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
@@ -50,9 +51,11 @@ func newImage(log *log.PrefixLogger, podman *client.Podman, spec *v1alpha1.Appli
 	}
 
 	return &imageProvider{
-		log:        log,
-		podman:     podman,
-		readWriter: readWriter,
+		log:             log,
+		podman:          podman,
+		readWriter:      readWriter,
+		prefetchManager: prefetchManager,
+		pullSecret:      pullSecret,
 		spec: &ApplicationSpec{
 			Name:          appName,
 			ID:            client.NewComposeID(appName),
@@ -147,8 +150,34 @@ func (p *imageProvider) Install(ctx context.Context) error {
 		return fmt.Errorf("image application spec is nil")
 	}
 
-	if err := p.podman.CopyContainerData(ctx, p.spec.ImageProvider.Image, p.spec.Path); err != nil {
-		return fmt.Errorf("copy image contents: %w", err)
+	reference := p.spec.ImageProvider.Image
+
+	// Determine if this is an artifact or image at runtime
+	_, isArtifact, err := inspectReference(ctx, p.podman, reference)
+	if err != nil {
+		return fmt.Errorf("inspecting reference: %w", err)
+	}
+
+	// Extract or copy contents based on whether it's an artifact or image
+	if isArtifact {
+		// Verify Podman version supports artifact extraction (requires >= 5.5.0)
+		version, err := p.podman.Version(ctx)
+		if err != nil {
+			return fmt.Errorf("%w: checking podman version: %w", errors.ErrNoRetry, err)
+		}
+		if !version.GreaterOrEqual(5, 5) {
+			return fmt.Errorf("%w: OCI artifact extraction requires podman >= 5.5, found %d.%d", errors.ErrNoRetry, version.Major, version.Minor)
+		}
+
+		p.log.Infof("Extracting artifact contents: %s", reference)
+		if _, err := p.podman.ExtractArtifact(ctx, reference, p.spec.Path); err != nil {
+			return fmt.Errorf("extract artifact contents: %w", err)
+		}
+	} else {
+		p.log.Debugf("Copying image contents: %s", reference)
+		if err := p.podman.CopyContainerData(ctx, reference, p.spec.Path); err != nil {
+			return fmt.Errorf("copy image contents: %w", err)
+		}
 	}
 
 	if err := writeENVFile(p.spec.Path, p.readWriter, p.spec.EnvVars); err != nil {
@@ -195,19 +224,54 @@ func (p *imageProvider) Spec() *ApplicationSpec {
 	return p.spec
 }
 
-// typeFromImage returns the app type from the image label take from the image in local container storage.
-func typeFromImage(ctx context.Context, podman *client.Podman, image string) (v1alpha1.AppType, error) {
-	labels, err := podman.InspectLabels(ctx, image)
+// inspectReference returns app type and whether the reference is an artifact (true) or image (false).
+// It inspects the reference once and checks for annotations (artifact) or labels (image).
+func inspectReference(ctx context.Context, podman *client.Podman, reference string) (appType v1alpha1.AppType, isArtifact bool, err error) {
+	inspectJSON, err := podman.Inspect(ctx, reference)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
-	appTypeLabel, ok := labels[AppTypeLabel]
+
+	var inspectData []struct {
+		Annotations map[string]string `json:"Annotations"`
+		Config      struct {
+			Labels map[string]string `json:"Labels"`
+		} `json:"Config"`
+	}
+	if err := json.Unmarshal([]byte(inspectJSON), &inspectData); err != nil {
+		return "", false, fmt.Errorf("parse inspect response: %w", err)
+	}
+
+	if len(inspectData) == 0 {
+		return "", false, fmt.Errorf("no inspect data found")
+	}
+
+	// Check for annotations first (OCI artifacts), then fall back to labels (images)
+	var metadata map[string]string
+	if len(inspectData[0].Annotations) > 0 {
+		metadata = inspectData[0].Annotations
+		isArtifact = true
+	} else if len(inspectData[0].Config.Labels) > 0 {
+		metadata = inspectData[0].Config.Labels
+		isArtifact = false
+	} else {
+		metadata = make(map[string]string)
+		isArtifact = false
+	}
+
+	appType, err = extractAppType(metadata, AppTypeLabel, reference)
+	return appType, isArtifact, err
+}
+
+// extractAppType extracts and validates appType from a metadata map (labels or annotations)
+func extractAppType(metadata map[string]string, key, reference string) (v1alpha1.AppType, error) {
+	appTypeValue, ok := metadata[key]
 	if !ok {
-		return "", fmt.Errorf("%w: %s, %s", errors.ErrAppLabel, AppTypeLabel, image)
+		return "", fmt.Errorf("%w: %s, %s", errors.ErrAppLabel, key, reference)
 	}
-	appType := v1alpha1.AppType(appTypeLabel)
+	appType := v1alpha1.AppType(appTypeValue)
 	if appType == "" {
-		return "", fmt.Errorf("%w: %s", errors.ErrParseAppType, appTypeLabel)
+		return "", fmt.Errorf("%w: %s", errors.ErrParseAppType, appTypeValue)
 	}
 	return appType, nil
 }
