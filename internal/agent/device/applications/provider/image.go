@@ -34,10 +34,16 @@ func newImage(log *log.PrefixLogger, podman *client.Podman, spec *v1alpha1.Appli
 		return nil, fmt.Errorf("getting provider spec:%w", err)
 	}
 
-	// set the app name to the image name if not provided
+	// Get the OCI reference (image or artifact)
+	reference, err := provider.GetReference()
+	if err != nil {
+		return nil, fmt.Errorf("getting OCI reference: %w", err)
+	}
+
+	// set the app name to the reference if not provided
 	appName := lo.FromPtr(spec.Name)
 	if appName == "" {
-		appName = provider.Image
+		appName = reference
 	}
 	embedded := false
 	path, err := pathFromAppType(appType, appName, embedded)
@@ -74,6 +80,51 @@ func (p *imageProvider) Verify(ctx context.Context) error {
 		return fmt.Errorf("%w: validating env vars: %w", errors.ErrInvalidSpec, err)
 	}
 
+	// Get the OCI reference (image or artifact)
+	reference, err := p.spec.ImageProvider.GetReference()
+	if err != nil {
+		return fmt.Errorf("getting OCI reference: %w", err)
+	}
+
+	// Determine if this is an artifact based on the field used
+	// With validation: artifact field → quadlet, image field → compose
+	isArtifactField := p.spec.ImageProvider.IsArtifact()
+
+	// Get app type from spec or auto-detect from labels/annotations
+	specDefinedType := lo.FromPtr(&p.spec.AppType)
+	var detectedType v1alpha1.AppType
+	var isArtifact bool
+
+	// Always inspect to validate metadata (labels/annotations)
+	// This ensures artifact annotations and image labels match the spec
+	detectedType, isArtifact, err = inspectReference(ctx, p.podman, reference)
+
+	// Validate that the field used matches the actual type
+	if isArtifactField && !isArtifact {
+		p.log.Warnf("Using 'artifact' field but reference appears to be a container image (no annotations found)")
+	} else if !isArtifactField && isArtifact {
+		p.log.Warnf("Using 'image' field but reference appears to be an OCI artifact (has annotations)")
+	}
+
+	if specDefinedType == "" {
+		// Auto-detect type from artifact annotation or image label
+		if err != nil {
+			return fmt.Errorf("getting app type: %w", err)
+		}
+		p.spec.AppType = detectedType
+	} else {
+		// Spec has app type defined - validate it matches artifact/image metadata
+		if err == nil && detectedType != "" && detectedType != specDefinedType {
+			sourceType := "image label"
+			if isArtifact {
+				sourceType = "artifact annotation"
+			}
+			p.log.Warnf("App type mismatch: spec defines %q but %s has %q. Using spec definition.",
+				specDefinedType, sourceType, detectedType)
+		}
+	}
+
+	// Validate supported app types
 	if p.spec.AppType != v1alpha1.AppTypeCompose && p.spec.AppType != v1alpha1.AppTypeQuadlet {
 		return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, p.spec.AppType)
 	}
@@ -150,7 +201,11 @@ func (p *imageProvider) Install(ctx context.Context) error {
 		return fmt.Errorf("image application spec is nil")
 	}
 
-	reference := p.spec.ImageProvider.Image
+	// Get the OCI reference (image or artifact)
+	reference, err := p.spec.ImageProvider.GetReference()
+	if err != nil {
+		return fmt.Errorf("getting OCI reference: %w", err)
+	}
 
 	// Determine if this is an artifact or image at runtime
 	_, isArtifact, err := inspectReference(ctx, p.podman, reference)
