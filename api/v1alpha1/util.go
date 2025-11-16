@@ -130,16 +130,21 @@ func (a ApplicationProviderSpec) Type() (ApplicationProviderType, error) {
 }
 
 func getApplicationType(union json.RawMessage) (ApplicationProviderType, error) {
-	var data map[ApplicationProviderType]interface{}
+	var data map[string]interface{}
 	if err := json.Unmarshal(union, &data); err != nil {
 		return "", err
 	}
 
-	if _, exists := data[ImageApplicationProviderType]; exists {
+	// Check for image provider fields (image or artifact)
+	if _, exists := data["image"]; exists {
+		return ImageApplicationProviderType, nil
+	}
+	if _, exists := data["artifact"]; exists {
 		return ImageApplicationProviderType, nil
 	}
 
-	if _, exists := data[InlineApplicationProviderType]; exists {
+	// Check for inline provider field
+	if _, exists := data["inline"]; exists {
 		return InlineApplicationProviderType, nil
 	}
 
