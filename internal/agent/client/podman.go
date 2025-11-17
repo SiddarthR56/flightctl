@@ -153,6 +153,10 @@ func (p *Podman) pullArtifact(ctx context.Context, artifact string, options *cli
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	if err := p.EnsureArtifactSupport(ctx); err != nil {
+		return "", err
+	}
+
 	pullSecretPath := options.pullSecretPath
 	args := []string{"artifact", "pull", artifact}
 	if pullSecretPath != "" {
@@ -185,6 +189,10 @@ func (p *Podman) pullArtifact(ctx context.Context, artifact string, options *cli
 func (p *Podman) ExtractArtifact(ctx context.Context, artifact, destination string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
+
+	if err := p.EnsureArtifactSupport(ctx); err != nil {
+		return "", err
+	}
 
 	args := []string{"artifact", "extract", artifact, destination}
 	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
@@ -235,11 +243,12 @@ func (p *Podman) ImageDigest(ctx context.Context, image string) (string, error) 
 }
 
 // ArtifactExists returns true if the artifact exists in storage otherwise false.
+// podman does not support `inspect` for artifacts, so use `artifact inspect`.
 func (p *Podman) ArtifactExists(ctx context.Context, artifact string) bool {
 	ctx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
 
-	args := []string{"inspect", artifact}
+	args := []string{"artifact", "inspect", artifact}
 	_, _, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	return exitCode == 0
 }
@@ -545,6 +554,18 @@ func (p *Podman) Compose() *Compose {
 type PodmanVersion struct {
 	Major int
 	Minor int
+}
+
+// EnsureArtifactSupport verifies the local podman version can execute artifact commands.
+func (p *Podman) EnsureArtifactSupport(ctx context.Context) error {
+	version, err := p.Version(ctx)
+	if err != nil {
+		return fmt.Errorf("%w: checking podman version: %w", errors.ErrNoRetry, err)
+	}
+	if !version.GreaterOrEqual(5, 5) {
+		return fmt.Errorf("%w: OCI artifact operations require podman >= 5.5, found %d.%d", errors.ErrNoRetry, version.Major, version.Minor)
+	}
+	return nil
 }
 
 func (v PodmanVersion) GreaterOrEqual(major, minor int) bool {
