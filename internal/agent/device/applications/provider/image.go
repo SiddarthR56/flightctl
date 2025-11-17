@@ -57,11 +57,9 @@ func newImage(log *log.PrefixLogger, podman *client.Podman, spec *v1alpha1.Appli
 	}
 
 	return &imageProvider{
-		log:             log,
-		podman:          podman,
-		readWriter:      readWriter,
-		prefetchManager: prefetchManager,
-		pullSecret:      pullSecret,
+		log:        log,
+		podman:     podman,
+		readWriter: readWriter,
 		spec: &ApplicationSpec{
 			Name:          appName,
 			ID:            client.NewComposeID(appName),
@@ -95,33 +93,42 @@ func (p *imageProvider) Verify(ctx context.Context) error {
 	var detectedType v1alpha1.AppType
 	var isArtifact bool
 
-	// Always inspect to validate metadata (labels/annotations)
-	// This ensures artifact annotations and image labels match the spec
-	detectedType, isArtifact, err = inspectReference(ctx, p.podman, reference)
+	// Always inspect to validate metadata where possible.
+	detectedType, inspectedArtifact, inspectErr := inspectReference(ctx, p.podman, reference)
+	isArtifact = inspectedArtifact
 
 	// Validate that the field used matches the actual type
-	if isArtifactField && !isArtifact {
-		p.log.Warnf("Using 'artifact' field but reference appears to be a container image (no annotations found)")
-	} else if !isArtifactField && isArtifact {
-		p.log.Warnf("Using 'image' field but reference appears to be an OCI artifact (has annotations)")
+	if inspectErr == nil {
+		if isArtifactField && !inspectedArtifact {
+			p.log.Warnf("Using 'artifact' field but reference appears to be a container image (no annotations found)")
+		} else if !isArtifactField && inspectedArtifact {
+			p.log.Warnf("Using 'image' field but reference appears to be an OCI artifact (has annotations)")
+		}
 	}
 
 	if specDefinedType == "" {
 		// Auto-detect type from artifact annotation or image label
-		if err != nil {
-			return fmt.Errorf("getting app type: %w", err)
+		if inspectErr != nil {
+			return fmt.Errorf("getting app type: %w", inspectErr)
 		}
 		p.spec.AppType = detectedType
 	} else {
-		// Spec has app type defined - validate it matches artifact/image metadata
-		if err == nil && detectedType != "" && detectedType != specDefinedType {
+		// Spec has app type defined - validate it matches artifact/image metadata when available
+		if inspectErr == nil && detectedType != "" && detectedType != specDefinedType {
 			sourceType := "image label"
-			if isArtifact {
+			if inspectedArtifact {
 				sourceType = "artifact annotation"
 			}
 			p.log.Warnf("App type mismatch: spec defines %q but %s has %q. Using spec definition.",
 				specDefinedType, sourceType, detectedType)
 		}
+	}
+
+	if isArtifactField {
+		// Field intent overrides inspection for artifact detection (annotations may be missing)
+		isArtifact = true
+	} else {
+		isArtifact = inspectedArtifact
 	}
 
 	// Validate supported app types
@@ -144,7 +151,7 @@ func (p *imageProvider) Verify(ctx context.Context) error {
 		tmpAppPath = p.AppData.TmpPath
 		shouldCleanup = false
 	} else {
-		// no cache, extract the image contents
+		// no cache, extract the image or artifact contents
 		var err error
 		tmpAppPath, err = p.readWriter.MkdirTemp("app_temp")
 		if err != nil {
@@ -152,12 +159,12 @@ func (p *imageProvider) Verify(ctx context.Context) error {
 		}
 		shouldCleanup = true
 
-		// copy image contents to a tmp directory for further processing
-		if err := p.podman.CopyContainerData(ctx, p.spec.ImageProvider.Image, tmpAppPath); err != nil {
+		// copy or extract contents to a tmp directory for further processing
+		if err := extractReferenceContents(ctx, p.podman, p.readWriter, reference, tmpAppPath, isArtifact); err != nil {
 			if rmErr := p.readWriter.RemoveAll(tmpAppPath); rmErr != nil {
 				p.log.Warnf("Failed to cleanup temporary directory %q: %v", tmpAppPath, rmErr)
 			}
-			return fmt.Errorf("copy image contents: %w", err)
+			return err
 		}
 	}
 
@@ -207,32 +214,17 @@ func (p *imageProvider) Install(ctx context.Context) error {
 		return fmt.Errorf("getting OCI reference: %w", err)
 	}
 
-	// Determine if this is an artifact or image at runtime
-	_, isArtifact, err := inspectReference(ctx, p.podman, reference)
-	if err != nil {
-		return fmt.Errorf("inspecting reference: %w", err)
-	}
+	// Determine artifact vs image based on the field used
+	isArtifact := p.spec.ImageProvider.IsArtifact()
 
-	// Extract or copy contents based on whether it's an artifact or image
 	if isArtifact {
-		// Verify Podman version supports artifact extraction (requires >= 5.5.0)
-		version, err := p.podman.Version(ctx)
-		if err != nil {
-			return fmt.Errorf("%w: checking podman version: %w", errors.ErrNoRetry, err)
-		}
-		if !version.GreaterOrEqual(5, 5) {
-			return fmt.Errorf("%w: OCI artifact extraction requires podman >= 5.5, found %d.%d", errors.ErrNoRetry, version.Major, version.Minor)
-		}
-
 		p.log.Infof("Extracting artifact contents: %s", reference)
-		if _, err := p.podman.ExtractArtifact(ctx, reference, p.spec.Path); err != nil {
-			return fmt.Errorf("extract artifact contents: %w", err)
-		}
 	} else {
 		p.log.Debugf("Copying image contents: %s", reference)
-		if err := p.podman.CopyContainerData(ctx, reference, p.spec.Path); err != nil {
-			return fmt.Errorf("copy image contents: %w", err)
-		}
+	}
+
+	if err := extractReferenceContents(ctx, p.podman, p.readWriter, reference, p.spec.Path, isArtifact); err != nil {
+		return err
 	}
 
 	if err := writeENVFile(p.spec.Path, p.readWriter, p.spec.EnvVars); err != nil {
@@ -329,4 +321,10 @@ func extractAppType(metadata map[string]string, key, reference string) (v1alpha1
 		return "", fmt.Errorf("%w: %s", errors.ErrParseAppType, appTypeValue)
 	}
 	return appType, nil
+}
+
+// typeFromImage inspects the local OCI reference to determine the application type.
+func typeFromImage(ctx context.Context, podman *client.Podman, reference string) (v1alpha1.AppType, error) {
+	appType, _, err := inspectReference(ctx, podman, reference)
+	return appType, err
 }

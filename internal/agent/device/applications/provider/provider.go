@@ -85,11 +85,20 @@ func CollectBaseOCITargets(
 				return nil, fmt.Errorf("getting image provider spec: %w", err)
 			}
 
+			reference, err := imageSpec.GetReference()
+			if err != nil {
+				return nil, fmt.Errorf("getting image reference: %w", err)
+			}
+
 			// Add base image with PullIfNotPresent policy
 			policy := v1alpha1.PullIfNotPresent
+			targetType := dependency.OCITypeImage
+			if imageSpec.IsArtifact() {
+				targetType = dependency.OCITypeArtifact
+			}
 			targets = append(targets, dependency.OCIPullTarget{
-				Type:       dependency.OCITypeImage,
-				Reference:  imageSpec.Image,
+				Type:       targetType,
+				Reference:  reference,
 				PullPolicy: policy,
 				PullSecret: pullSecret,
 			})
@@ -300,18 +309,29 @@ func ExtractNestedTargetsFromImage(
 	imageSpec *v1alpha1.ImageApplicationProviderSpec,
 	pullSecret *client.PullSecret,
 ) (*AppData, error) {
+	reference, err := imageSpec.GetReference()
+	if err != nil {
+		return nil, fmt.Errorf("getting OCI reference: %w", err)
+	}
+
+	isArtifact := imageSpec.IsArtifact()
+
 	appName := lo.FromPtr(appSpec.Name)
 	if appName == "" {
-		appName = imageSpec.Image
+		appName = reference
 	}
 
 	// determine app type
 	appType := lo.FromPtr(appSpec.AppType)
 	if appType == "" {
-		var err error
-		appType, err = typeFromImage(ctx, podman, imageSpec.Image)
-		if err != nil {
-			return nil, fmt.Errorf("getting app type for app %s (%s): %w", appName, imageSpec.Image, err)
+		if isArtifact {
+			appType = v1alpha1.AppTypeQuadlet
+		} else {
+			var err error
+			appType, err = typeFromImage(ctx, podman, reference)
+			if err != nil {
+				return nil, fmt.Errorf("getting app type for app %s (%s): %w", appName, reference, err)
+			}
 		}
 	}
 
@@ -325,7 +345,8 @@ func ExtractNestedTargetsFromImage(
 		podman,
 		readWriter,
 		appName,
-		imageSpec.Image,
+		reference,
+		isArtifact,
 		appType,
 		pullSecret,
 	)
@@ -364,16 +385,29 @@ func FromDeviceSpec(
 
 		switch providerType {
 		case v1alpha1.ImageApplicationProviderType:
+			imageSpec, err := providerSpec.AsImageApplicationProviderSpec()
+			if err != nil {
+				return nil, fmt.Errorf("getting image provider spec: %w", err)
+			}
+
+			reference, err := imageSpec.GetReference()
+			if err != nil {
+				return nil, fmt.Errorf("getting OCI reference for image provider: %w", err)
+			}
+
+			isArtifact := imageSpec.IsArtifact()
+
 			// determine app type for image provider
 			appType := lo.FromPtr(providerSpec.AppType)
-			if appType == "" {
-				imageSpec, err := providerSpec.AsImageApplicationProviderSpec()
-				if err != nil {
-					return nil, fmt.Errorf("getting image provider spec: %w", err)
+			if isArtifact {
+				if appType != "" && appType != v1alpha1.AppTypeQuadlet {
+					log.Warnf("Artifact applications only support appType=quadlet (app %s). Overriding %q to quadlet.", lo.FromPtr(providerSpec.Name), appType)
 				}
-				appType, err = typeFromImage(ctx, podman, imageSpec.Image)
+				appType = v1alpha1.AppTypeQuadlet
+			} else if appType == "" {
+				appType, err = typeFromImage(ctx, podman, reference)
 				if err != nil {
-					return nil, fmt.Errorf("getting app type for image %s: %w", imageSpec.Image, err)
+					return nil, fmt.Errorf("getting app type for reference %s: %w", reference, err)
 				}
 			}
 			if appType != v1alpha1.AppTypeCompose && appType != v1alpha1.AppTypeQuadlet {
@@ -387,10 +421,7 @@ func FromDeviceSpec(
 			if cfg.appDataCache != nil {
 				appName := lo.FromPtr(providerSpec.Name)
 				if appName == "" {
-					imageSpec, err := providerSpec.AsImageApplicationProviderSpec()
-					if err == nil {
-						appName = imageSpec.Image
-					}
+					appName = reference
 				}
 				if cachedData, found := cfg.appDataCache[appName]; found {
 					imgProvider.AppData = cachedData
@@ -548,10 +579,12 @@ type Diff struct {
 type ParseOpt func(*parseConfig)
 
 type parseConfig struct {
-	embedded      bool
-	verify        bool
-	providerTypes map[v1alpha1.ApplicationProviderType]struct{}
-	appDataCache  map[string]*AppData
+	embedded        bool
+	verify          bool
+	providerTypes   map[v1alpha1.ApplicationProviderType]struct{}
+	appDataCache    map[string]*AppData
+	prefetchManager dependency.PrefetchManager
+	pullSecret      *client.PullSecret
 }
 
 func WithEmbedded() ParseOpt {
@@ -647,6 +680,7 @@ func extractAppDataFromOCITarget(
 	readWriter fileio.ReadWriter,
 	appName string,
 	imageRef string,
+	isArtifact bool,
 	appType v1alpha1.AppType,
 	pullSecret *client.PullSecret,
 ) (*AppData, error) {
@@ -659,11 +693,11 @@ func extractAppDataFromOCITarget(
 		return readWriter.RemoveAll(tmpAppPath)
 	}
 
-	if err := podman.CopyContainerData(ctx, imageRef, tmpAppPath); err != nil {
+	if err := extractReferenceContents(ctx, podman, readWriter, imageRef, tmpAppPath, isArtifact); err != nil {
 		if rmErr := cleanupFn(); rmErr != nil {
-			return nil, fmt.Errorf("copying image contents for app %s (%s): %w (cleanup failed: %v)", appName, imageRef, err, rmErr)
+			return nil, fmt.Errorf("copying reference contents for app %s (%s): %w (cleanup failed: %v)", appName, imageRef, err, rmErr)
 		}
-		return nil, fmt.Errorf("copying image contents for app %s (%s): %w", appName, imageRef, err)
+		return nil, fmt.Errorf("copying reference contents for app %s (%s): %w", appName, imageRef, err)
 	}
 
 	var targets []dependency.OCIPullTarget
