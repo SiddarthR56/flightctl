@@ -134,3 +134,55 @@ func TestArtifactExistsReturnsFalseOnError(t *testing.T) {
 
 	require.False(t, podman.ArtifactExists(context.Background(), artifactRef))
 }
+
+func TestInspectArtifactAnnotationsManifest(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockExec := executer.NewMockExecuter(ctrl)
+	podman := newTestPodman(t, mockExec)
+
+	artifactRef := "registry.example.com/org/app:latest"
+	output := `{"manifest":{"annotations":{"appType":"quadlet","foo":"bar"}}}`
+
+	mockExec.EXPECT().
+		ExecuteWithContext(gomock.Any(), "podman", "artifact", "inspect", artifactRef).
+		Return(output, "", 0)
+
+	annotations, err := podman.InspectArtifactAnnotations(context.Background(), artifactRef)
+	require.NoError(t, err)
+	require.Equal(t, "quadlet", annotations["appType"])
+	require.Equal(t, "bar", annotations["foo"])
+}
+
+func TestInspectArtifactAnnotationsManifestList(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockExec := executer.NewMockExecuter(ctrl)
+	podman := newTestPodman(t, mockExec)
+
+	artifactRef := "registry.example.com/org/app:list"
+	output := `{"manifests":[{"annotations":{"appType":"quadlet"}}]}`
+
+	mockExec.EXPECT().
+		ExecuteWithContext(gomock.Any(), "podman", "artifact", "inspect", artifactRef).
+		Return(output, "", 0)
+
+	annotations, err := podman.InspectArtifactAnnotations(context.Background(), artifactRef)
+	require.NoError(t, err)
+	require.Equal(t, "quadlet", annotations["appType"])
+}
+
+func TestInspectArtifactAnnotationsMissing(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockExec := executer.NewMockExecuter(ctrl)
+	podman := newTestPodman(t, mockExec)
+
+	artifactRef := "registry.example.com/org/app:missing"
+	output := `{"manifests":[{}]}`
+
+	mockExec.EXPECT().
+		ExecuteWithContext(gomock.Any(), "podman", "artifact", "inspect", artifactRef).
+		Return(output, "", 0)
+
+	_, err := podman.InspectArtifactAnnotations(context.Background(), artifactRef)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "no annotations")
+}

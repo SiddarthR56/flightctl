@@ -2,7 +2,6 @@ package provider
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
@@ -94,7 +93,7 @@ func (p *imageProvider) Verify(ctx context.Context) error {
 	var isArtifact bool
 
 	// Always inspect to validate metadata where possible.
-	detectedType, inspectedArtifact, inspectErr := inspectReference(ctx, p.podman, reference)
+	detectedType, inspectedArtifact, inspectErr := inspectReference(ctx, p.podman, reference, isArtifactField)
 	isArtifact = inspectedArtifact
 
 	// Validate that the field used matches the actual type
@@ -121,6 +120,8 @@ func (p *imageProvider) Verify(ctx context.Context) error {
 			}
 			p.log.Warnf("App type mismatch: spec defines %q but %s has %q. Using spec definition.",
 				specDefinedType, sourceType, detectedType)
+		} else if inspectErr != nil && isArtifactField {
+			p.log.Warnf("Unable to inspect artifact annotations for %s: %v", reference, inspectErr)
 		}
 	}
 
@@ -129,6 +130,12 @@ func (p *imageProvider) Verify(ctx context.Context) error {
 		isArtifact = true
 	} else {
 		isArtifact = inspectedArtifact
+	}
+
+	if isArtifact {
+		if err := p.podman.EnsureArtifactSupport(ctx); err != nil {
+			return err
+		}
 	}
 
 	// Validate supported app types
@@ -218,6 +225,9 @@ func (p *imageProvider) Install(ctx context.Context) error {
 	isArtifact := p.spec.ImageProvider.IsArtifact()
 
 	if isArtifact {
+		if err := p.podman.EnsureArtifactSupport(ctx); err != nil {
+			return err
+		}
 		p.log.Infof("Extracting artifact contents: %s", reference)
 	} else {
 		p.log.Debugf("Copying image contents: %s", reference)
@@ -271,39 +281,35 @@ func (p *imageProvider) Spec() *ApplicationSpec {
 	return p.spec
 }
 
-// inspectReference returns app type and whether the reference is an artifact (true) or image (false).
-// It inspects the reference once and checks for annotations (artifact) or labels (image).
-func inspectReference(ctx context.Context, podman *client.Podman, reference string) (appType v1alpha1.AppType, isArtifact bool, err error) {
-	inspectJSON, err := podman.Inspect(ctx, reference)
-	if err != nil {
-		return "", false, err
-	}
-
-	var inspectData []struct {
-		Annotations map[string]string `json:"Annotations"`
-		Config      struct {
-			Labels map[string]string `json:"Labels"`
-		} `json:"Config"`
-	}
-	if err := json.Unmarshal([]byte(inspectJSON), &inspectData); err != nil {
-		return "", false, fmt.Errorf("parse inspect response: %w", err)
-	}
-
-	if len(inspectData) == 0 {
-		return "", false, fmt.Errorf("no inspect data found")
-	}
-
-	// Check for annotations first (OCI artifacts), then fall back to labels (images)
+// inspectReference returns the app type and whether the reference is an artifact (true) or image (false).
+// When preferArtifact is true, artifact annotations are inspected if image metadata does not provide app type information.
+func inspectReference(ctx context.Context, podman *client.Podman, reference string, preferArtifact bool) (appType v1alpha1.AppType, isArtifact bool, err error) {
 	var metadata map[string]string
-	if len(inspectData[0].Annotations) > 0 {
-		metadata = inspectData[0].Annotations
+
+	meta, inspectErr := podman.InspectReferenceMetadata(ctx, reference)
+	if inspectErr == nil && meta != nil {
+		if len(meta.Annotations) > 0 {
+			metadata = meta.Annotations
+			isArtifact = true
+		} else {
+			metadata = meta.Labels
+			isArtifact = false
+		}
+	} else if !preferArtifact {
+		return "", false, inspectErr
+	}
+
+	if preferArtifact && (len(metadata) == 0 || !isArtifact) {
+		annotations, err := podman.InspectArtifactAnnotations(ctx, reference)
+		if err != nil {
+			return "", true, err
+		}
+		metadata = annotations
 		isArtifact = true
-	} else if len(inspectData[0].Config.Labels) > 0 {
-		metadata = inspectData[0].Config.Labels
-		isArtifact = false
-	} else {
-		metadata = make(map[string]string)
-		isArtifact = false
+	}
+
+	if len(metadata) == 0 {
+		return "", isArtifact, fmt.Errorf("%w: %s, %s", errors.ErrAppLabel, AppTypeLabel, reference)
 	}
 
 	appType, err = extractAppType(metadata, AppTypeLabel, reference)
@@ -325,6 +331,6 @@ func extractAppType(metadata map[string]string, key, reference string) (v1alpha1
 
 // typeFromImage inspects the local OCI reference to determine the application type.
 func typeFromImage(ctx context.Context, podman *client.Podman, reference string) (v1alpha1.AppType, error) {
-	appType, _, err := inspectReference(ctx, podman, reference)
+	appType, _, err := inspectReference(ctx, podman, reference, false)
 	return appType, err
 }

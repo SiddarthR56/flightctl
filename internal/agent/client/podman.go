@@ -218,6 +218,40 @@ func (p *Podman) Inspect(ctx context.Context, image string) (string, error) {
 	return out, nil
 }
 
+// ReferenceMetadata contains the annotations and labels discovered via podman inspect.
+type ReferenceMetadata struct {
+	Annotations map[string]string
+	Labels      map[string]string
+}
+
+// InspectReferenceMetadata returns the metadata (annotations + labels) for a reference.
+func (p *Podman) InspectReferenceMetadata(ctx context.Context, reference string) (*ReferenceMetadata, error) {
+	resp, err := p.Inspect(ctx, reference)
+	if err != nil {
+		return nil, err
+	}
+
+	var inspectData []struct {
+		Annotations map[string]string `json:"Annotations"`
+		Config      struct {
+			Labels map[string]string `json:"Labels"`
+		} `json:"Config"`
+	}
+
+	if err := json.Unmarshal([]byte(resp), &inspectData); err != nil {
+		return nil, fmt.Errorf("parse inspect response: %w", err)
+	}
+
+	if len(inspectData) == 0 {
+		return nil, fmt.Errorf("no inspect data found")
+	}
+
+	return &ReferenceMetadata{
+		Annotations: inspectData[0].Annotations,
+		Labels:      inspectData[0].Config.Labels,
+	}, nil
+}
+
 func (p *Podman) ImageExists(ctx context.Context, image string) bool {
 	ctx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
@@ -251,6 +285,25 @@ func (p *Podman) ArtifactExists(ctx context.Context, artifact string) bool {
 	args := []string{"artifact", "inspect", artifact}
 	_, _, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	return exitCode == 0
+}
+
+// InspectArtifactAnnotations inspects an OCI artifact and returns its annotations map.
+func (p *Podman) InspectArtifactAnnotations(ctx context.Context, reference string) (map[string]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+
+	args := []string{"artifact", "inspect", reference}
+	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
+	if exitCode != 0 {
+		return nil, fmt.Errorf("artifact inspect: %w", errors.FromStderr(stderr, exitCode))
+	}
+
+	annotations, err := parseArtifactAnnotations(stdout)
+	if err != nil {
+		return nil, err
+	}
+
+	return annotations, nil
 }
 
 // EventsSinceCmd returns a command to get podman events since the given time. After creating the command, it should be started with exec.Start().
@@ -311,24 +364,14 @@ func (p *Podman) Copy(ctx context.Context, src, dst string) error {
 }
 
 func (p *Podman) InspectLabels(ctx context.Context, image string) (map[string]string, error) {
-	ctx, cancel := context.WithTimeout(ctx, p.timeout)
-	defer cancel()
-
-	resp, err := p.Inspect(ctx, image)
+	meta, err := p.InspectReferenceMetadata(ctx, image)
 	if err != nil {
 		return nil, err
 	}
-
-	var inspectData []PodmanInspect
-	if err := json.Unmarshal([]byte(resp), &inspectData); err != nil {
-		return nil, fmt.Errorf("parse image inspect response: %w", err)
+	if meta == nil {
+		return nil, fmt.Errorf("no image metadata found")
 	}
-
-	if len(inspectData) == 0 {
-		return nil, fmt.Errorf("no image config found")
-	}
-
-	return inspectData[0].Config.Labels, nil
+	return meta.Labels, nil
 }
 
 func (p *Podman) StopContainers(ctx context.Context, labels []string) error {
@@ -526,6 +569,88 @@ func (p *Podman) RemovePods(ctx context.Context, pods ...string) error {
 		p.log.Infof("Removed pod %s", pod)
 	}
 	return nil
+}
+
+func parseArtifactAnnotations(data string) (map[string]string, error) {
+	var payload interface{}
+	if err := json.Unmarshal([]byte(data), &payload); err != nil {
+		return nil, fmt.Errorf("parse artifact inspect response: %w", err)
+	}
+
+	annotations := findAnnotations(payload)
+	if annotations == nil {
+		return nil, fmt.Errorf("no annotations found in artifact inspect response")
+	}
+	return annotations, nil
+}
+
+func findAnnotations(node interface{}) map[string]string {
+	switch value := node.(type) {
+	case map[string]interface{}:
+		if ann := extractAnnotationMap(value, "annotations"); ann != nil {
+			return ann
+		}
+		if ann := extractAnnotationMap(value, "Annotations"); ann != nil {
+			return ann
+		}
+		if manifest, ok := value["manifest"]; ok {
+			if ann := findAnnotations(manifest); ann != nil {
+				return ann
+			}
+		}
+		if manifest, ok := value["Manifest"]; ok {
+			if ann := findAnnotations(manifest); ann != nil {
+				return ann
+			}
+		}
+		if manifests, ok := value["manifests"]; ok {
+			if ann := findAnnotations(manifests); ann != nil {
+				return ann
+			}
+		}
+		if manifests, ok := value["Manifests"]; ok {
+			if ann := findAnnotations(manifests); ann != nil {
+				return ann
+			}
+		}
+		for key, child := range value {
+			switch strings.ToLower(key) {
+			case "annotations", "manifest", "manifests":
+				continue
+			}
+			if ann := findAnnotations(child); ann != nil {
+				return ann
+			}
+		}
+	case []interface{}:
+		for _, child := range value {
+			if ann := findAnnotations(child); ann != nil {
+				return ann
+			}
+		}
+	}
+	return nil
+}
+
+func extractAnnotationMap(parent map[string]interface{}, key string) map[string]string {
+	raw, ok := parent[key]
+	if !ok {
+		return nil
+	}
+	values, ok := raw.(map[string]interface{})
+	if !ok || len(values) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(values))
+	for k, v := range values {
+		if str, ok := v.(string); ok {
+			out[k] = str
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func (p *Podman) Unshare(ctx context.Context, args ...string) (string, error) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
@@ -233,4 +234,144 @@ func mockPodmanInspect(labels map[string]string) []client.PodmanInspect {
 		},
 	}
 	return []client.PodmanInspect{inspect}
+}
+
+func TestImageProviderArtifactQuadlet(t *testing.T) {
+	require := require.New(t)
+
+	log := log.NewPrefixLogger("test")
+	log.SetLevel(logrus.DebugLevel)
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockExec := executer.NewMockExecuter(ctrl)
+
+	rw := fileio.NewReadWriter()
+	rw.SetRootdir(t.TempDir())
+
+	podman := client.NewPodman(log, mockExec, rw, util.NewPollConfig())
+
+	artifactRef := "quay.io/flightctl-tests/quadlet-artifact:v1"
+	appName := "artifact-app"
+
+	providerSpec := &v1alpha1.ApplicationProviderSpec{
+		Name:    lo.ToPtr(appName),
+		AppType: lo.ToPtr(v1alpha1.AppTypeQuadlet),
+	}
+	imageSpec := v1alpha1.ImageApplicationProviderSpec{
+		Artifact: lo.ToPtr(artifactRef),
+	}
+	require.NoError(providerSpec.FromImageApplicationProviderSpec(imageSpec))
+
+	appType := lo.FromPtr(providerSpec.AppType)
+	imageProvider, err := newImage(log, podman, providerSpec, rw, appType)
+	require.NoError(err)
+
+	inspect := mockPodmanInspect(map[string]string{})
+	inspectBytes, err := json.Marshal(inspect)
+	require.NoError(err)
+
+	annotationJSON := `{"manifest":{"annotations":{"appType":"quadlet"}}}`
+
+	writeQuadlet := func(dest string) {
+		require.NoError(rw.MkdirAll(dest, fileio.DefaultDirectoryPermissions))
+		content := "[Container]\nImage=docker.io/library/busybox:latest\n"
+		require.NoError(rw.WriteFile(filepath.Join(dest, "web.container"), []byte(content), fileio.DefaultFilePermissions))
+	}
+
+	mockExec.EXPECT().
+		ExecuteWithContext(gomock.Any(), "podman", gomock.AssignableToTypeOf([]string{})).
+		DoAndReturn(func(ctx context.Context, cmd string, args ...string) (string, string, int) {
+			switch {
+			case len(args) == 1 && args[0] == "--version":
+				return "podman version 5.5.1", "", 0
+			case len(args) == 2 && args[0] == "inspect" && args[1] == artifactRef:
+				return string(inspectBytes), "", 0
+			case len(args) == 3 && args[0] == "artifact" && args[1] == "inspect" && args[2] == artifactRef:
+				return annotationJSON, "", 0
+			case len(args) >= 4 && args[0] == "artifact" && args[1] == "extract" && args[2] == artifactRef:
+				dest := args[3]
+				writeQuadlet(dest)
+				return "", "", 0
+			default:
+				return "", "unexpected command", 125
+			}
+		}).
+		AnyTimes()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	require.NoError(imageProvider.Verify(ctx))
+	require.NoError(imageProvider.Install(ctx))
+
+	appPath, err := pathFromAppType(imageProvider.spec.AppType, imageProvider.spec.Name, imageProvider.spec.Embedded)
+	require.NoError(err)
+
+	entries, err := rw.ReadDir(appPath)
+	require.NoError(err)
+
+	found := false
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".container") {
+			found = true
+			break
+		}
+	}
+	require.True(found, "expected quadlet container file to be installed")
+}
+
+func TestImageProviderArtifactRequiresPodman55(t *testing.T) {
+	require := require.New(t)
+
+	log := log.NewPrefixLogger("test")
+	log.SetLevel(logrus.DebugLevel)
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockExec := executer.NewMockExecuter(ctrl)
+
+	rw := fileio.NewReadWriter()
+	rw.SetRootdir(t.TempDir())
+
+	podman := client.NewPodman(log, mockExec, rw, util.NewPollConfig())
+
+	artifactRef := "quay.io/flightctl-tests/quadlet-artifact:v1"
+	appName := "artifact-app"
+
+	providerSpec := &v1alpha1.ApplicationProviderSpec{
+		Name:    lo.ToPtr(appName),
+		AppType: lo.ToPtr(v1alpha1.AppTypeQuadlet),
+	}
+	imageSpec := v1alpha1.ImageApplicationProviderSpec{
+		Artifact: lo.ToPtr(artifactRef),
+	}
+	require.NoError(providerSpec.FromImageApplicationProviderSpec(imageSpec))
+
+	appType := lo.FromPtr(providerSpec.AppType)
+	imageProvider, err := newImage(log, podman, providerSpec, rw, appType)
+	require.NoError(err)
+
+	inspectJSON := `[{"Annotations":{"appType":"quadlet"},"Config":{"Labels":{}}}]`
+
+	mockExec.EXPECT().
+		ExecuteWithContext(gomock.Any(), "podman", gomock.AssignableToTypeOf([]string{})).
+		DoAndReturn(func(ctx context.Context, cmd string, args ...string) (string, string, int) {
+			switch {
+			case len(args) == 2 && args[0] == "inspect" && args[1] == artifactRef:
+				return inspectJSON, "", 0
+			case len(args) == 1 && args[0] == "--version":
+				return "podman version 5.4.0", "", 0
+			default:
+				return "", "unexpected command", 125
+			}
+		}).
+		AnyTimes()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err = imageProvider.Verify(ctx)
+	require.Error(err)
+	require.Contains(err.Error(), "podman >= 5.5")
 }
