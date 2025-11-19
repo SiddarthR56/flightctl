@@ -85,20 +85,18 @@ func CollectBaseOCITargets(
 				return nil, fmt.Errorf("getting image provider spec: %w", err)
 			}
 
-			reference, err := imageSpec.GetReference()
-			if err != nil {
-				return nil, fmt.Errorf("getting image reference: %w", err)
+			reference := imageSpec.Image
+			if reference == "" {
+				return nil, fmt.Errorf("image reference is required")
 			}
 
 			// Add base image with PullIfNotPresent policy
+			// Use OCITypeAuto to let prefetch manager detect the type
 			policy := v1alpha1.PullIfNotPresent
-			targetType := dependency.OCITypeImage
-			if imageSpec.IsArtifact() {
-				targetType = dependency.OCITypeArtifact
-			}
+			targetType := dependency.OCITypeAuto
 			targets = append(targets, dependency.OCIPullTarget{
-				Type:       dependency.OCITypeAuto,
-				Reference:  imageSpec.Image,
+				Type:       targetType,
+				Reference:  reference,
 				PullPolicy: policy,
 				PullSecret: pullSecret,
 			})
@@ -307,32 +305,42 @@ func ExtractNestedTargetsFromImage(
 	readWriter fileio.ReadWriter,
 	appSpec *v1alpha1.ApplicationProviderSpec,
 	imageSpec *v1alpha1.ImageApplicationProviderSpec,
+	parentType dependency.OCIType,
 	pullSecret *client.PullSecret,
 ) (*AppData, error) {
-	reference, err := imageSpec.GetReference()
-	if err != nil {
-		return nil, fmt.Errorf("getting OCI reference: %w", err)
+	reference := imageSpec.Image
+	if reference == "" {
+		return nil, fmt.Errorf("image reference is required")
 	}
 
-	isArtifact := imageSpec.IsArtifact()
+	// Try to detect if this is an artifact by inspecting it
+	isArtifact := parentType == dependency.OCITypeArtifact
+	appType := lo.FromPtr(appSpec.AppType)
+
+	// If appType is not specified, try to detect it
+	if appType == "" {
+		// Try to detect from the reference
+		detectedType, detectedArtifact, err := inspectReference(ctx, podman, reference, isArtifact)
+		if err == nil {
+			appType = detectedType
+			isArtifact = detectedArtifact
+		} else {
+			// Fallback: assume it's an image and try to get labels
+			appType, err = typeFromImage(ctx, podman, reference)
+			if err != nil {
+				// If that fails too, we can't proceed
+				appName := lo.FromPtr(appSpec.Name)
+				if appName == "" {
+					appName = reference
+				}
+				return nil, fmt.Errorf("getting app type for app %s (%s): %w", appName, reference, err)
+			}
+		}
+	}
 
 	appName := lo.FromPtr(appSpec.Name)
 	if appName == "" {
 		appName = reference
-	}
-
-	// determine app type
-	appType := lo.FromPtr(appSpec.AppType)
-	if appType == "" {
-		if isArtifact {
-			appType = v1alpha1.AppTypeQuadlet
-		} else {
-			var err error
-			appType, err = typeFromImage(ctx, podman, reference)
-			if err != nil {
-				return nil, fmt.Errorf("getting app type for app %s (%s): %w", appName, reference, err)
-			}
-		}
 	}
 
 	if appType != v1alpha1.AppTypeCompose && appType != v1alpha1.AppTypeQuadlet {
@@ -352,6 +360,19 @@ func ExtractNestedTargetsFromImage(
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	cachedAppData.DetectionResult = &DetectionResult{
+		AppType:    appType,
+		OCIType:    parentType,
+		IsArtifact: isArtifact,
+	}
+	if cachedAppData.DetectionResult.OCIType == "" {
+		if isArtifact {
+			cachedAppData.DetectionResult.OCIType = dependency.OCITypeArtifact
+		} else {
+			cachedAppData.DetectionResult.OCIType = dependency.OCITypeImage
+		}
 	}
 
 	return cachedAppData, nil
@@ -390,30 +411,13 @@ func FromDeviceSpec(
 				return nil, fmt.Errorf("getting image provider spec: %w", err)
 			}
 
-			reference, err := imageSpec.GetReference()
-			if err != nil {
-				return nil, fmt.Errorf("getting OCI reference for image provider: %w", err)
+			reference := imageSpec.Image
+			if reference == "" {
+				return nil, fmt.Errorf("image reference is required for image provider")
 			}
 
-			isArtifact := imageSpec.IsArtifact()
-
-			// determine app type for image provider
-			appType := lo.FromPtr(providerSpec.AppType)
-			if isArtifact {
-				if appType != "" && appType != v1alpha1.AppTypeQuadlet {
-					log.Warnf("Artifact applications only support appType=quadlet (app %s). Overriding %q to quadlet.", lo.FromPtr(providerSpec.Name), appType)
-				}
-				appType = v1alpha1.AppTypeQuadlet
-			} else if appType == "" {
-				appType, err = typeFromImage(ctx, podman, reference)
-				if err != nil {
-					return nil, fmt.Errorf("getting app type for reference %s: %w", reference, err)
-				}
-			}
-			if appType != v1alpha1.AppTypeCompose && appType != v1alpha1.AppTypeQuadlet {
-				return nil, fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
-			}
-			imgProvider, err := newImage(log, podman, &providerSpec, readWriter, appType)
+			// Create image provider - detection happens in Verify()
+			imgProvider, err := newImage(log, podman, &providerSpec, readWriter)
 			if err != nil {
 				return nil, err
 			}
@@ -638,11 +642,20 @@ func pathFromAppType(appType v1alpha1.AppType, name string, embedded bool) (stri
 	return filepath.Join(typePath, name), nil
 }
 
+// DetectionResult contains OCI/app type detection results for an application reference.
+type DetectionResult struct {
+	AppType    v1alpha1.AppType
+	OCIType    dependency.OCIType
+	IsArtifact bool
+}
+
 // AppData holds the extracted application data and cleanup function
 type AppData struct {
 	Targets   []dependency.OCIPullTarget
 	TmpPath   string
 	CleanupFn func() error
+	// DetectionResult caches the detected OCI/app type for reuse in Verify
+	DetectionResult *DetectionResult
 }
 
 // NewAppDataCache creates a new app data cache
@@ -655,6 +668,41 @@ func (e *AppData) Cleanup() error {
 		return e.CleanupFn()
 	}
 	return nil
+}
+
+// ValidateDetectionResult validates that the detection result is compatible with the spec.
+func ValidateDetectionResult(result *DetectionResult, spec *ApplicationSpec) error {
+	// Validate app type is supported
+	if result.AppType != v1alpha1.AppTypeCompose && result.AppType != v1alpha1.AppTypeQuadlet {
+		return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, result.AppType)
+	}
+
+	// If it's an artifact, it must be quadlet
+	if result.IsArtifact && result.AppType != v1alpha1.AppTypeQuadlet {
+		return fmt.Errorf("OCI artifacts are only supported with appType=quadlet, got %s", result.AppType)
+	}
+
+	// Quadlet-specific validations
+	if result.AppType == v1alpha1.AppTypeQuadlet && spec.ImageProvider != nil {
+		if spec.ImageProvider.Ports != nil && len(*spec.ImageProvider.Ports) > 0 {
+			return fmt.Errorf("quadlet applications do not support port mappings")
+		}
+		if spec.ImageProvider.Resources != nil {
+			return fmt.Errorf("quadlet applications do not support resource constraints")
+		}
+		if spec.ImageProvider.Volumes != nil && len(*spec.ImageProvider.Volumes) > 0 {
+			return fmt.Errorf("quadlet applications do not support volume specifications")
+		}
+	}
+
+	return nil
+}
+
+func ociTypeFromArtifact(isArtifact bool) dependency.OCIType {
+	if isArtifact {
+		return dependency.OCITypeArtifact
+	}
+	return dependency.OCITypeImage
 }
 
 // extractAppDataFromOCITarget extracts and parses a container image to find application images

@@ -152,9 +152,6 @@ func (a *Agent) Run(ctx context.Context) error {
 	// create podman client
 	podmanClient := client.NewPodman(a.log, executer, deviceReadWriter, pollBackoff)
 
-	// create skopeo client
-	skopeoClient := client.NewSkopeo(a.log, executer, deviceReadWriter)
-
 	// create systemd client
 	systemdClient := client.NewSystemd(executer)
 
@@ -230,6 +227,9 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	// create hook manager
 	hookManager := hook.NewManager(deviceReadWriter, executer, a.log)
+
+	// create skopeo client for OCI manifest inspection
+	skopeoClient := client.NewSkopeo(a.log, executer, deviceReadWriter)
 
 	// create application manager
 	applicationsManager := applications.NewManager(

@@ -261,42 +261,36 @@ func (m *manager) collectNestedTargets(
 			return nil, false, nil, fmt.Errorf("getting image spec for app %s: %w", appName, err)
 		}
 
-		reference, err := imageSpec.GetReference()
-		if err != nil {
-			return nil, false, nil, fmt.Errorf("getting OCI reference for app %s: %w", appName, err)
+		reference := imageSpec.Image
+		if reference == "" {
+			return nil, false, nil, fmt.Errorf("image reference is required for app %s", appName)
 		}
 
-		isArtifact := imageSpec.IsArtifact()
-
+		// Try to detect if this is an artifact by checking what exists
 		var (
 			digest     string
 			parentType dependency.OCIType
 		)
-		if isArtifact {
-			if !m.podmanClient.ArtifactExists(ctx, reference) {
-				m.log.Debugf("Artifact %s for app %s not available yet, skipping nested extraction", reference, appName)
-				needsRequeue = true
-				continue
-			}
+
+		// Check artifact first, then image
+		if m.podmanClient.ArtifactExists(ctx, reference) {
 			digest, err = m.podmanClient.ArtifactDigest(ctx, reference)
 			if err != nil {
 				return nil, false, nil, fmt.Errorf("getting artifact digest for %s: %w", reference, err)
 			}
 			parentType = dependency.OCITypeArtifact
-		} else {
-			// check if parent image exists locally
-			if !m.podmanClient.ImageExists(ctx, reference) {
-				m.log.Debugf("Parent image %s for app %s not available yet, skipping nested extraction", reference, appName)
-				needsRequeue = true
-				continue
-			}
-
+		} else if m.podmanClient.ImageExists(ctx, reference) {
 			// get parent image digest for cache validation
 			digest, err = m.podmanClient.ImageDigest(ctx, reference)
 			if err != nil {
 				return nil, false, nil, fmt.Errorf("getting digest for %s: %w", reference, err)
 			}
 			parentType = dependency.OCITypeImage
+		} else {
+			// Neither exists locally yet, need to requeue
+			m.log.Debugf("Reference %s for app %s not available yet, skipping nested extraction", reference, appName)
+			needsRequeue = true
+			continue
 		}
 
 		if cachedEntry, found := m.ociTargetCache.Get(appName); found {
@@ -309,7 +303,7 @@ func (m *manager) collectNestedTargets(
 		}
 
 		// cache miss or invalid - extract nested targets for this image
-		appData, err := m.extractNestedTargetsForImage(ctx, appSpec, &imageSpec, secret)
+		appData, err := m.extractNestedTargetsForImage(ctx, appSpec, &imageSpec, parentType, secret)
 		if err != nil {
 			return nil, false, nil, fmt.Errorf("extracting nested targets for app %s: %w", appName, err)
 		}
@@ -341,6 +335,7 @@ func (m *manager) extractNestedTargetsForImage(
 	ctx context.Context,
 	appSpec v1alpha1.ApplicationProviderSpec,
 	imageSpec *v1alpha1.ImageApplicationProviderSpec,
+	parentType dependency.OCIType,
 	secret *client.PullSecret,
 ) (*provider.AppData, error) {
 	return provider.ExtractNestedTargetsFromImage(
@@ -350,6 +345,7 @@ func (m *manager) extractNestedTargetsForImage(
 		m.readWriter,
 		&appSpec,
 		imageSpec,
+		parentType,
 		secret,
 	)
 }

@@ -109,7 +109,7 @@ func (c *Compose) stopAndRemoveContainers(ctx context.Context, action *Action) e
 
 func cleanPodmanResources(ctx context.Context, podman *client.Podman, labels []string, filters []string) error {
 	var errs []error
-	networks, err := podman.ListNetworks(ctx, labels, filters)
+	networks, err := podman.ListNetworks(ctx, labels)
 	if err != nil {
 		errs = append(errs, err)
 	}

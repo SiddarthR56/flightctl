@@ -142,7 +142,7 @@ func extractArchiveFile(readWriter fileio.ReadWriter, archivePath, destination s
 			if err := readWriter.MkdirAll(targetPath, fileio.DefaultDirectoryPermissions); err != nil {
 				return fmt.Errorf("creating directory %s: %w", targetPath, err)
 			}
-		case tar.TypeReg:
+		case tar.TypeReg, tar.TypeRegA:
 			if err := readWriter.MkdirAll(filepath.Dir(targetPath), fileio.DefaultDirectoryPermissions); err != nil {
 				return fmt.Errorf("creating parent directory for %s: %w", targetPath, err)
 			}
@@ -157,9 +157,50 @@ func extractArchiveFile(readWriter fileio.ReadWriter, archivePath, destination s
 			if err := readWriter.WriteFile(targetPath, data, perm); err != nil {
 				return fmt.Errorf("writing file %s: %w", targetPath, err)
 			}
+		case tar.TypeLink:
+			if err := handleHardLinkEntry(readWriter, destination, cleanName, header.Linkname); err != nil {
+				return err
+			}
+		case tar.TypeSymlink:
+			linkName := header.Linkname
+			if linkName == "" {
+				linkName = "<empty>"
+			}
+			return fmt.Errorf("symlinks are not supported in artifacts: %s -> %s", cleanName, linkName)
+		case tar.TypeXHeader, tar.TypeXGlobalHeader, tar.TypeGNULongName, tar.TypeGNULongLink, tar.TypeGNUSparse:
+			// benign metadata (PAX headers, GNU extensions) - skip
+			continue
 		default:
 			return fmt.Errorf("unsupported archive entry type %d for %s", header.Typeflag, header.Name)
 		}
+	}
+
+	return nil
+}
+
+func handleHardLinkEntry(readWriter fileio.ReadWriter, destination, entryName, linkName string) error {
+	targetName, err := cleanArchiveEntryPath(linkName)
+	if err != nil {
+		return fmt.Errorf("invalid hard link target for %s: %w", entryName, err)
+	}
+
+	sourcePath := filepath.Join(destination, targetName)
+	exists, err := readWriter.PathExists(sourcePath)
+	if err != nil {
+		return fmt.Errorf("checking hard link target %s: %w", sourcePath, err)
+	}
+	if !exists {
+		// Target not yet extracted—skip per instructions.
+		return nil
+	}
+
+	destPath := filepath.Join(destination, entryName)
+	if err := readWriter.MkdirAll(filepath.Dir(destPath), fileio.DefaultDirectoryPermissions); err != nil {
+		return fmt.Errorf("creating parent directory for hard link %s: %w", destPath, err)
+	}
+
+	if err := readWriter.CopyFile(sourcePath, destPath); err != nil {
+		return fmt.Errorf("replicating hard link target %s to %s: %w", sourcePath, destPath, err)
 	}
 
 	return nil

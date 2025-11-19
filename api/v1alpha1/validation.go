@@ -923,10 +923,9 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 				allErrs = append(allErrs, fmt.Errorf("invalid image application provider: %w", err))
 				continue
 			}
-			// Get the reference (image or artifact)
-			reference, err := provider.GetReference()
-			if err != nil {
-				allErrs = append(allErrs, fmt.Errorf("image application provider: %w", err))
+			// Validate the image reference
+			if provider.Image == "" {
+				allErrs = append(allErrs, fmt.Errorf("image application provider: image is required"))
 				continue
 			}
 			allErrs = append(allErrs, validateOciImageReference(&provider.Image, fmt.Sprintf("spec.applications[%s].image", appName), fleetTemplate)...)
@@ -1023,14 +1022,10 @@ func ensureAppName(app ApplicationProviderSpec, appType ApplicationProviderType)
 
 		// default name to provider reference if not provided
 		if app.Name == nil {
-			reference, err := provider.GetReference()
-			if err != nil {
-				return "", fmt.Errorf("getting reference: %w", err)
+			if provider.Image == "" {
+				return "", fmt.Errorf("image is required when application name is not provided")
 			}
-			if reference == "" {
-				return "", fmt.Errorf("provider image/artifact cannot be empty when application name is not provided")
-			}
-			return reference, nil
+			app.Name = &provider.Image
 		}
 
 		return *app.Name, nil
