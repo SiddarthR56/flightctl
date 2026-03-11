@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	_ "embed"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -391,6 +393,11 @@ func (c *Consumer) executeExport(
 		return "", cleanup, fmt.Errorf("failed to initialize podman storage: %w", err)
 	}
 
+	// Step 2.6: Install CA certificate for source registry if configured
+	if err := installCACertInWorker(ctx, exportSource.OciRepoSpec.CaCrt, worker.ContainerName, registryHostname, log); err != nil {
+		return "", cleanup, fmt.Errorf("failed to install CA cert for source registry: %w", err)
+	}
+
 	// Step 3: Login to registry if credentials are provided
 	if exportSource.OciRepoSpec.OciAuth != nil {
 		dockerAuth, err := exportSource.OciRepoSpec.OciAuth.AsDockerAuth()
@@ -460,10 +467,7 @@ func (c *Consumer) startBootcImageBuilderContainer(
 	if c.cfg == nil || c.cfg.ImageBuilderWorker == nil {
 		return nil, fmt.Errorf("config or ImageBuilderWorker config is nil")
 	}
-	bootcImageBuilderImage := c.cfg.ImageBuilderWorker.BootcImageBuilderImage
-	if bootcImageBuilderImage == "" {
-		return nil, fmt.Errorf("bootcImageBuilderImage is not configured")
-	}
+	bootcImageBuilderImage := c.cfg.ImageBuilderWorker.EffectiveBootcImageBuilderImage()
 
 	// Create temporary directories
 	tmpDir, err := os.MkdirTemp("", "imageexport-*")
@@ -503,9 +507,11 @@ func (c *Consumer) startBootcImageBuilderContainer(
 		"--security-opt", "label=type:unconfined_t",
 		"-v", fmt.Sprintf("%s:%s:Z", tmpOutDir, containerOutDir),
 		"-v", fmt.Sprintf("%s:%s:Z", tmpContainerStorage, containerStorageDir),
-		bootcImageBuilderImage,
-		"infinity",
 	}
+	if c.cfg.ImageBuilderWorker.EffectiveBootcImageBuilderSkipTLSVerify() {
+		startArgs = append(startArgs, "--tls-verify=false")
+	}
+	startArgs = append(startArgs, bootcImageBuilderImage, "infinity")
 
 	cmdParts := []string{"podman"}
 	cmdParts = append(cmdParts, startArgs...)
@@ -630,10 +636,12 @@ func (c *Consumer) loginToRegistryForExport(
 	// Build podman login command arguments
 	loginArgs := []string{"login", "-u", username, "--password-stdin"}
 
-	// Skip TLS verification if requested
-	if ociRepoSpec != nil && ociRepoSpec.SkipServerVerification != nil && *ociRepoSpec.SkipServerVerification {
+	if ociRepoSpec != nil && ociRepoSpec.Scheme != nil && *ociRepoSpec.Scheme == coredomain.OciRepoSchemeHttp {
 		loginArgs = append(loginArgs, "--tls-verify=false")
-		log.Debug("Using --tls-verify=false for podman login")
+		log.Debug("Using --tls-verify=false for HTTP registry login")
+	} else if ociRepoSpec != nil && ociRepoSpec.SkipServerVerification != nil && *ociRepoSpec.SkipServerVerification {
+		loginArgs = append(loginArgs, "--tls-verify=false")
+		log.Debug("Using --tls-verify=false due to SkipServerVerification for login")
 	}
 
 	loginArgs = append(loginArgs, registryHostname)
@@ -669,10 +677,12 @@ func (c *Consumer) pullSourceImage(ctx context.Context, worker *privilegedPodman
 	// Build podman pull command
 	pullArgs := []string{"pull"}
 
-	// Skip TLS verification if requested
-	if ociRepoSpec != nil && ociRepoSpec.SkipServerVerification != nil && *ociRepoSpec.SkipServerVerification {
+	if ociRepoSpec != nil && ociRepoSpec.Scheme != nil && *ociRepoSpec.Scheme == coredomain.OciRepoSchemeHttp {
 		pullArgs = append(pullArgs, "--tls-verify=false")
-		log.Debug("Using --tls-verify=false for podman pull")
+		log.Debug("Using --tls-verify=false for HTTP registry pull")
+	} else if ociRepoSpec != nil && ociRepoSpec.SkipServerVerification != nil && *ociRepoSpec.SkipServerVerification {
+		pullArgs = append(pullArgs, "--tls-verify=false")
+		log.Debug("Using --tls-verify=false due to SkipServerVerification for pull")
 	}
 
 	pullArgs = append(pullArgs, bootcImageRef)
@@ -1037,6 +1047,57 @@ func getReferencedDigest(
 	return destManifestDesc, nil
 }
 
+// newOCIAuthClient builds an auth.Client configured with TLS settings and credentials
+// from an OciRepoSpec. It handles SkipServerVerification, custom CA certificates, and
+// registry authentication in one place.
+func newOCIAuthClient(ociSpec *coredomain.OciRepoSpec, registryHostname string, log logrus.FieldLogger) (*auth.Client, error) {
+	authClient := &auth.Client{}
+
+	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12}
+	customTLS := false
+
+	if ociSpec.SkipServerVerification != nil && *ociSpec.SkipServerVerification {
+		tlsConfig.InsecureSkipVerify = true
+		customTLS = true
+		log.Debug("Using InsecureSkipVerify for TLS")
+	}
+
+	if ociSpec.CaCrt != nil {
+		ca, err := base64.StdEncoding.DecodeString(*ociSpec.CaCrt)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode CA certificate: %w", err)
+		}
+		rootCAs, err := x509.SystemCertPool()
+		if err != nil {
+			rootCAs = x509.NewCertPool()
+		}
+		if !rootCAs.AppendCertsFromPEM(ca) {
+			return nil, fmt.Errorf("failed to append CA certificates from PEM")
+		}
+		tlsConfig.RootCAs = rootCAs
+		customTLS = true
+		log.Debug("Custom CA certificate configured for TLS")
+	}
+
+	if customTLS {
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.TLSClientConfig = tlsConfig
+		authClient.Client = &http.Client{Transport: transport}
+	}
+
+	if ociSpec.OciAuth != nil {
+		dockerAuth, err := ociSpec.OciAuth.AsDockerAuth()
+		if err == nil && dockerAuth.Username != "" && dockerAuth.Password != "" {
+			authClient.Credential = auth.StaticCredential(registryHostname, auth.Credential{
+				Username: dockerAuth.Username,
+				Password: dockerAuth.Password,
+			})
+		}
+	}
+
+	return authClient, nil
+}
+
 // pushArtifact pushes the exported artifact to the destination registry using oras-go/v2
 // as a referrer artifact that references the original source image
 func (c *Consumer) pushArtifact(
@@ -1122,35 +1183,15 @@ func (c *Consumer) pushArtifact(
 	// ORAS tries to delete old referrer indices which can cause auth failures with some registries
 	repoRef.SkipReferrersGC = true
 
-	// Configure auth client with optional TLS skip and credentials
-	authClient := &auth.Client{}
-
-	// Skip TLS verification if requested (still use HTTPS, just don't verify certs)
-	if ociSpec.SkipServerVerification != nil && *ociSpec.SkipServerVerification {
-		// Clone the default transport to preserve default settings (timeouts, connection pooling, etc.)
-		transport := http.DefaultTransport.(*http.Transport).Clone()
-		transport.TLSClientConfig = &tls.Config{
-			InsecureSkipVerify: true, //nolint:gosec
-		}
-		authClient.Client = &http.Client{
-			Transport: transport,
-		}
-		log.Debug("Using InsecureSkipVerify for TLS")
+	// Configure auth client with TLS settings (SkipServerVerification, CA cert) and credentials
+	authClient, err := newOCIAuthClient(&ociSpec, destRegistryHostname, log)
+	if err != nil {
+		return fmt.Errorf("failed to configure OCI auth client: %w", err)
 	}
-
-	// Set up authentication if credentials are provided
-	if ociSpec.OciAuth != nil {
-		dockerAuth, err := ociSpec.OciAuth.AsDockerAuth()
-		if err == nil && dockerAuth.Username != "" && dockerAuth.Password != "" {
-			authClient.Credential = auth.StaticCredential(destRegistryHostname, auth.Credential{
-				Username: dockerAuth.Username,
-				Password: dockerAuth.Password,
-			})
-			log.Info("Successfully configured authentication for destination registry")
-			statusUpdater.reportOutput([]byte("Authenticated with destination registry\n"))
-		}
+	if authClient.Credential != nil {
+		log.Info("Successfully configured authentication for destination registry")
+		statusUpdater.reportOutput([]byte("Authenticated with destination registry\n"))
 	}
-
 	repoRef.Client = authClient
 
 	// Resolve the destination image's manifest to get its digest for the referrer subject

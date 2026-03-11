@@ -32,9 +32,6 @@ Requires: openssl
 
 %global flightctl_target flightctl.target
 
-# --- Restart these on upgrade  ---
-%global flightctl_services_restart flightctl-api.service flightctl-ui.service flightctl-worker.service flightctl-alertmanager.service flightctl-alert-exporter.service flightctl-alertmanager-proxy.service flightctl-cli-artifacts.service flightctl-periodic.service flightctl-db-migrate.service flightctl-db-wait.service flightctl-imagebuilder-api.service flightctl-imagebuilder-worker.service flightctl-telemetry-gateway.service
-
 
 %description
 # Main package is empty and not created.
@@ -121,6 +118,11 @@ Prometheus for metric storage and Grafana for visualization.
 %{_datadir}/flightctl/flightctl-grafana/grafana-datasources.yaml
 %{_datadir}/flightctl/flightctl-grafana/grafana-dashboards.yaml
 
+# Grafana provisioning files installed directly to /etc
+%config(noreplace) /etc/flightctl/flightctl-grafana/provisioning/datasources/grafana-datasources.yaml
+%config(noreplace) /etc/flightctl/flightctl-grafana/provisioning/dashboards/grafana-dashboards.yaml
+%config(noreplace) /etc/flightctl/flightctl-grafana/provisioning/dashboards/flightctl/*.json
+
 # Prometheus static configuration
 %{_datadir}/flightctl/flightctl-prometheus/prometheus.yml
 
@@ -166,15 +168,6 @@ echo "Note: Observability stack can be installed independently of other Flight C
 %post observability
 # This script runs AFTER the files have been installed onto the system.
 echo "Running post-install actions for Flight Control Observability Stack..."
-
-# Create necessary directories on the host if they don't already exist.
-/usr/bin/mkdir -p /etc/flightctl/flightctl-grafana/provisioning/datasources
-/usr/bin/mkdir -p /etc/flightctl/flightctl-grafana/provisioning/alerting
-/usr/bin/mkdir -p /etc/flightctl/flightctl-grafana/provisioning/dashboards/flightctl
-/usr/bin/mkdir -p /etc/flightctl/flightctl-grafana/certs
-/usr/bin/mkdir -p /etc/flightctl/flightctl-prometheus
-/usr/bin/mkdir -p /var/lib/prometheus
-/usr/bin/mkdir -p /var/lib/grafana
 
 # Set ownership for persistent data directories
 chown 65534:65534 /var/lib/prometheus
@@ -470,11 +463,11 @@ rm -rf /usr/share/sosreport
 
 # We want a regular user to run applications with as there are several issues around system users
 # and running quadlet applications.
-id -u flightctl 2>/dev/null || useradd --home-dir /home/flightctl --create-home --user-group flightctl
+id -u flightctl 2>/dev/null || useradd --create-home --user-group flightctl
 # This enables lingering for the user with a fallback when building in an env without an active systemd.
 loginctl enable-linger flightctl || (mkdir -p /var/lib/systemd/linger/ && touch /var/lib/systemd/linger/flightctl)
-mkdir -p /home/flightctl/{.config,.local}
-chown -R flightctl:flightctl /home/flightctl/{.config,.local}
+mkdir -p ~flightctl/{.config,.local}
+chown -R flightctl:flightctl ~flightctl/{.config,.local}
 
 %files selinux
 %{_datadir}/selinux/packages/%{selinuxtype}/flightctl_agent.pp.bz2
@@ -530,8 +523,6 @@ chown -R flightctl:flightctl /home/flightctl/{.config,.local}
     %dir %attr(0755,root,root) %{_var}/tmp/flightctl-exports
     %{_datadir}/flightctl/flightctl-api/config.yaml.template
     %{_datadir}/flightctl/flightctl-api/env.template
-    %attr(0755,root,root) %{_datadir}/flightctl/flightctl-api/init.sh
-    %attr(0755,root,root) %{_datadir}/flightctl/flightctl-api/create_aap_application.sh
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-db/enable-superuser.sh
     %{_datadir}/flightctl/flightctl-kv/redis.conf
     %{_datadir}/flightctl/flightctl-ui/env.template
@@ -553,7 +544,7 @@ chown -R flightctl:flightctl /home/flightctl/{.config,.local}
     %{_datadir}/flightctl/flightctl-telemetry-gateway/config.yaml.template
 
     # Quadlet files (excluding observability components which are in separate packages)
-    %{_datadir}/containers/systemd/flightctl-api*.container
+    %{_datadir}/containers/systemd/flightctl-api.container
     %{_datadir}/containers/systemd/flightctl-worker.container
     %{_datadir}/containers/systemd/flightctl-periodic.container
     %{_datadir}/containers/systemd/flightctl-alert*.container
@@ -586,6 +577,7 @@ chown -R flightctl:flightctl /home/flightctl/{.config,.local}
     # Files mounted to lib dir
     /usr/lib/systemd/system/flightctl.target
     /usr/lib/systemd/system/flightctl-certs-init.service
+    /usr/lib/systemd/system/flightctl-api-init.service
 
     # Files mounted to bin dir
     %attr(0755,root,root) %{_bindir}/flightctl-services-must-gather
@@ -619,6 +611,13 @@ fi
 
 # Reload systemd to recognize new container files
 /usr/bin/systemctl daemon-reload >/dev/null 2>&1 || :
+
+# On upgrade: mark the target for restart so all PartOf= services restart.
+# The OLD package's %%postun may not mark the target (older versions marked
+# individual services with an incomplete list). Marking is idempotent.
+if [ "$1" -ge 2 ] && [ -x "/usr/lib/systemd/systemd-update-helper" ]; then
+    /usr/lib/systemd/systemd-update-helper mark-restart-system-units %{flightctl_target} || :
+fi
 
 cfg="%{_sysconfdir}/flightctl/flightctl-services-install.conf"
 
@@ -662,7 +661,7 @@ fi
 
 %postun services
 # On upgrade: mark services for restart after transaction completes
-%systemd_postun_with_restart %{flightctl_services_restart}
+%systemd_postun_with_restart %{flightctl_target}
 %systemd_postun %{flightctl_target}
 
 # If contexts were managed via policy, no cleanup is needed here.

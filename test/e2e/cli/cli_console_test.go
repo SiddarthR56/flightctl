@@ -7,7 +7,6 @@ import (
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/test/e2e/resources"
 	"github.com/flightctl/flightctl/test/harness/e2e"
-	"github.com/flightctl/flightctl/test/login"
 	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -30,8 +29,6 @@ var _ = Describe("CLI - device console", func() {
 	BeforeEach(func() {
 		// Get harness directly - no shared package-level variable
 		harness := e2e.GetWorkerHarness()
-
-		login.LoginToAPIWithToken(harness)
 
 		By("enrolling the device")
 		deviceID, _ = harness.EnrollAndWaitForOnlineStatus()
@@ -63,10 +60,14 @@ var _ = Describe("CLI - device console", func() {
 		cs2.MustExpect("/var/lib/flightctl")
 
 		cs1.MustSend("echo Session1 > /tmp/file.txt")
+		cs1.MustExpect(`.*flightctl-console@.*\$`)
+
 		cs2.MustSend("cat /tmp/file.txt")
 		cs2.MustExpect("Session1")
 
 		cs2.MustSend("echo Session2 >> /tmp/file.txt")
+		cs2.MustExpect(`.*flightctl-console@.*\$`)
+
 		cs1.MustSend("cat /tmp/file.txt")
 		cs1.MustExpect("(?s).*Session1.*Session2.*")
 
@@ -133,9 +134,10 @@ var _ = Describe("CLI - device console", func() {
 			WithArguments(harness, resources.Devices, deviceID).
 			Should(WithTransform((*v1beta1.Device).IsUpdating, BeTrue()))
 
+		regHost, regPort := satellites.RegistryHost, satellites.RegistryPort
 		GinkgoWriter.Printf("Simulating network failure\n")
-		DeferCleanup(func() { _ = harness.FixNetworkFailure() })
-		err = harness.SimulateNetworkFailure()
+		DeferCleanup(func() { _ = harness.FixNetworkFailure(regHost, regPort) })
+		err = harness.SimulateNetworkFailure(regHost, regPort)
 		Expect(err).ToNot(HaveOccurred())
 
 		GinkgoWriter.Printf("Waiting for image pull activity\n")
@@ -150,7 +152,7 @@ var _ = Describe("CLI - device console", func() {
 			WithArguments(harness, resources.Devices, deviceID).
 			Should(WithTransform((*v1beta1.Device).IsUpdating, BeTrue()))
 
-		err = harness.FixNetworkFailure()
+		err = harness.FixNetworkFailure(regHost, regPort)
 		Expect(err).ToNot(HaveOccurred())
 
 		GinkgoWriter.Printf("Network disruption fixed. Waiting for the device to finish updating\n")
@@ -163,9 +165,10 @@ var _ = Describe("CLI - device console", func() {
 		// Get harness directly - no shared package-level variable
 		harness := e2e.GetWorkerHarness()
 
+		regHost, regPort := satellites.RegistryHost, satellites.RegistryPort
 		GinkgoWriter.Printf("Simulating network failure\n")
-		DeferCleanup(func() { _ = harness.FixNetworkFailure() })
-		err := harness.SimulateNetworkFailure()
+		DeferCleanup(func() { _ = harness.FixNetworkFailure(regHost, regPort) })
+		err := harness.SimulateNetworkFailure(regHost, regPort)
 		Expect(err).ToNot(HaveOccurred())
 
 		_, _, err = harness.WaitForBootstrapAndUpdateToVersion(deviceID, util.DeviceTags.V4)
@@ -193,7 +196,7 @@ var _ = Describe("CLI - device console", func() {
 			)
 
 		GinkgoWriter.Printf("Image pull failure detected!\n")
-		err = harness.FixNetworkFailure()
+		err = harness.FixNetworkFailure(regHost, regPort)
 		Expect(err).ToNot(HaveOccurred())
 
 		GinkgoWriter.Printf("Waiting for the device to finish updating\n")

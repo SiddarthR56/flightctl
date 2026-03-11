@@ -55,7 +55,7 @@ container_runtime_domtrans(flightctl_agent_t)
 domtrans_pattern(flightctl_agent_t, bin_t, unconfined_t)
 domtrans_pattern(flightctl_agent_t, systemd_systemctl_exec_t, unconfined_t)
 # Also give the agent the ability to kill such managed subprocessses
-allow flightctl_agent_t unconfined_t:process sigkill;
+allow flightctl_agent_t unconfined_t:process {signal sigkill};
 # Allow dbus to write back to the agent
 allow system_dbusd_t flightctl_agent_t:fifo_file write;
 
@@ -141,7 +141,7 @@ allow flightctl_agent_t install_t:process2 { nnp_transition nosuid_transition };
 
 # Terminal and PTY access for console sessions
 term_use_all_terms(flightctl_agent_t)
-allow flightctl_agent_t ptmx_t:chr_file { create read write open ioctl getattr setattr };
+allow flightctl_agent_t ptmx_t:chr_file { create read write lock open ioctl getattr setattr };
 allow flightctl_agent_t devpts_t:chr_file { create read write append open getattr ioctl setattr };
 allow flightctl_agent_t devpts_t:filesystem associate;
 

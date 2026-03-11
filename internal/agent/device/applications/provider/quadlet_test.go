@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -2048,7 +2049,7 @@ func TestGenerateQuadlet(t *testing.T) {
 				require.Contains(t, contentStr, "Volume=config.volume:/config")
 				require.Contains(t, contentStr, "[Service]")
 				require.Contains(t, contentStr, "Restart=on-failure")
-				require.Contains(t, contentStr, "RestartSec=60")
+				require.Contains(t, contentStr, "RestartSec=5")
 				require.Contains(t, contentStr, "[Install]")
 				require.Contains(t, contentStr, "WantedBy=default.target")
 			},
@@ -2148,6 +2149,9 @@ func TestQuadletInlineProvider(t *testing.T) {
 			require := require.New(t)
 			log := log.NewPrefixLogger("test")
 
+			procUser, err := user.Current()
+			require.NoError(err)
+
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
 			mockExec := executer.NewMockExecuter(ctrl)
@@ -2156,14 +2160,13 @@ func TestQuadletInlineProvider(t *testing.T) {
 				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
 				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
 			)
+			err = rw.WriteFile(filepath.Join(systemd.LingerDir, procUser.Username), []byte{}, 0644)
+			require.NoError(err)
 			podman := client.NewPodman(log, mockExec, rw, testutil.NewPollConfig())
 
 			if tt.setupMocks != nil {
 				tt.setupMocks(mockExec)
 			}
-
-			procUser, err := user.Current()
-			require.NoError(err)
 
 			// Build the QuadletApplication with inline content
 			quadletApp := v1beta1.QuadletApplication{
